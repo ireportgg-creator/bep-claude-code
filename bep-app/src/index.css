@@ -1,0 +1,12 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background: #F8FAFC;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+.chart-wrap canvas { cursor: grab; touch-action: none; user-select: none; }
+input[type=range] { accent-color: #3B82F6; }
+input[type=radio]  { accent-color: #3B82F6; }
+input[type=number]::-webkit-inner-spin-button { opacity: 0.5; }

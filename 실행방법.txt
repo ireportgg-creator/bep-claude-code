@@ -1,0 +1,1 @@
+bep-app폴더 안의 start.bat 실행 후 브라우저에서 localhost:5173 으로 연결

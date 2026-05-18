@@ -1,0 +1,6 @@
+# Claude Code 설정 (로컬 전용)
+.claude/
+
+# 엑셀 파일
+*.xlsx
+~$*.xlsx

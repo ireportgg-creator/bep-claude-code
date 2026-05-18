@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>손익분기점 그래프</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body { background:#F8FAFC; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; }
+    .chart-wrap canvas { cursor:grab; touch-action:none; user-select:none; }
+    input[type=range] { accent-color:#3B82F6; }
+    input[type=radio] { accent-color:#3B82F6; }
+    input[type=number]::-webkit-inner-spin-button { opacity:.5; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+/* ── 상수 ─────────────────────────────────────────── */
+const X_MAX   = 300000;
+const Y_MAX   = 15000;
+const HIT_PX  = 16;
+
+const SAMPLE_X = [
+  1000, 2000, 3000, 5000, 7000, 10000, 15000, 20000, 30000,
+  40000, 50000, 70000, 100000, 130000, 150000, 200000, 250000, 300000,
+];
+
+/* ── 유틸 ─────────────────────────────────────────── */
+function fmt(n) {
+  return isFinite(n) && n !== null ? Math.round(n).toLocaleString('ko-KR') : '–';
+}
+
+/** 파란 쌍곡선 데이터 생성: y = F/x + C (로그 간격 130개) */
+function buildBlue(F, C) {
+  const pts = [];
+  const x0 = 300, x1 = X_MAX;
+  for (let i = 0; i <= 130; i++) {
+    const t = i / 130;
+    const x = Math.round(x0 * Math.pow(x1 / x0, t));
+    const y = F > 0 ? F / x + C : C;
+    pts.push({ x, y: Math.min(y, Y_MAX * 1.5) });
+  }
+  return pts;
+}
+
+/** x 위치의 BEP 단가 */
+function bepAt(F, C, x) {
+  return x > 0 ? F / x + C : Y_MAX;
+}
+
+/* ── 입력 필드 ─────────────────────────────────────── */
+function NumInput({ label, value, onChange, min = 0, step = 1000 }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-xs font-medium text-slate-500 leading-tight">{label}</label>
+      <div className="relative">
+        <input type="number" min={min} step={step} value={value}
+          onChange={e => onChange(Math.max(min, Number(e.target.value) || 0))}
+          className="w-full border border-slate-200 rounded-xl px-3 py-2 pr-7 text-sm font-medium
+                     bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 text-slate-700 transition"
+        />
+        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">원</span>
+      </div>
+    </div>
+  );
+}
+
+/* ── 메인 앱 ───────────────────────────────────────── */
+function App() {
+  /* 입력 상태 */
+  const [machine,       setMachine]      = useState(6667000);
+  const [labor,         setLabor]        = useState(0);
+  const [depreciation,  setDepreciation] = useState(0);
+  const [electricity,   setElectricity]  = useState(0);
+  const [monthlyClicks, setMonthlyClicks]= useState(50000);
+  const [clickType,     setClickType]    = useState('color');
+
+  /* 저장 상태 */
+  const [savedStates, setSavedStates] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('bepSaves') || '[]'); }
+    catch { return []; }
+  });
+  const [copyDone, setCopyDone] = useState(false);
+
+  /* refs */
+  const canvasRef    = useRef(null);
+  const chartRef     = useRef(null);
+  const resetZoomRef = useRef(null);
+  const fRef         = useRef(0);
+  const cRef         = useRef(28);
+
+  /* 파생값 */
+  const F       = machine + labor + depreciation + electricity;
+  const C       = clickType === 'color' ? 28 : 12;
+  const bepNow  = monthlyClicks > 0 ? bepAt(F, C, monthlyClicks) : C;
+
+  /* ref 동기화 */
+  useEffect(() => { fRef.current = F; cRef.current = C; }, [F, C]);
+
+  /* ── 저장 / 내보내기 ─────────────────────────────── */
+  const buildExportData = () => ({
+    meta: { version: 1, createdAt: new Date().toISOString(), app: '손익분기점 그래프' },
+    config: {
+      fixedCosts: { machine, labor, depreciation, electricity, total: F },
+      clickCost: C, clickType, monthlyClicks,
+    },
+    bepAtReference: { monthlyClicks, bepPrice: Math.round(bepNow * 10) / 10 },
+    bepCurve: SAMPLE_X.map(x => ({
+      monthlyClicks: x,
+      bepPrice: Math.round(bepAt(F, C, x) * 10) / 10,
+    })),
+  });
+
+  const handleExport = () => {
+    const blob = new Blob([JSON.stringify(buildExportData(), null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = `bep-${Date.now()}.json`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(JSON.stringify(buildExportData(), null, 2))
+      .then(() => { setCopyDone(true); setTimeout(() => setCopyDone(false), 2000); });
+  };
+
+  const handleSave = () => {
+    const entry = {
+      id: Date.now(),
+      savedAt: new Date().toLocaleString('ko-KR'),
+      machine, labor, depreciation, electricity, monthlyClicks, clickType,
+      F, C, bepNow: Math.round(bepNow * 10) / 10,
+    };
+    const updated = [entry, ...savedStates].slice(0, 10);
+    setSavedStates(updated);
+    localStorage.setItem('bepSaves', JSON.stringify(updated));
+  };
+
+  const handleLoad = (s) => {
+    setMachine(s.machine); setLabor(s.labor);
+    setDepreciation(s.depreciation); setElectricity(s.electricity);
+    setMonthlyClicks(s.monthlyClicks); setClickType(s.clickType);
+  };
+
+  const handleDelete = (id) => {
+    const updated = savedStates.filter(s => s.id !== id);
+    setSavedStates(updated);
+    localStorage.setItem('bepSaves', JSON.stringify(updated));
+  };
+
+  /* ── 차트 생성 + 이벤트 (최초 1회) ──────────────── */
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+
+    const chart = new Chart(ctx, {
+      type: 'scatter',
+      data: {
+        datasets: [
+          /* 0: 파란 BEP 곡선 */
+          {
+            label: '손익분기 원가  y = F/x + C',
+            data: buildBlue(6667000, 28),
+            showLine: true,
+            borderColor: '#3B82F6',
+            backgroundColor: 'transparent',
+            borderWidth: 2.5,
+            borderDash: [7, 4],
+            pointRadius: 0,
+            pointHoverRadius: 0,
+            tension: 0,
+            order: 1,
+          },
+          /* 1: 월 예상 클릭 수 기준선 (수직) */
+          {
+            label: '월 예상 클릭 수',
+            data: [{ x: 50000, y: -1e6 }, { x: 50000, y: 1e6 }],
+            showLine: true,
+            borderColor: '#F97316',
+            backgroundColor: 'transparent',
+            borderDash: [5, 4],
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHoverRadius: 0,
+            tension: 0,
+            order: 2,
+          },
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 0 },
+        scales: {
+          x: {
+            type: 'linear', min: 0, max: X_MAX,
+            title: { display: true, text: '월 예상 클릭 수', color: '#64748B', font: { size: 11, weight: '500' } },
+            ticks: {
+              callback: v => v >= 1000 ? (v / 1000) + 'k' : v,
+              maxTicksLimit: 11, color: '#94A3B8', font: { size: 10 }
+            },
+            grid: { color: '#F1F5F9' }, border: { color: '#E2E8F0' }
+          },
+          y: {
+            type: 'linear', min: 0, max: Y_MAX,
+            title: { display: true, text: '클릭당 단가 (원)', color: '#64748B', font: { size: 11, weight: '500' } },
+            ticks: {
+              callback: v => v.toLocaleString('ko-KR') + '원',
+              maxTicksLimit: 9, color: '#94A3B8', font: { size: 10 }
+            },
+            grid: { color: '#F1F5F9' }, border: { color: '#E2E8F0' }
+          }
+        },
+        plugins: {
+          legend: {
+            position: 'top',
+            labels: { usePointStyle: true, padding: 16, font: { size: 11 }, color: '#475569' }
+          },
+          tooltip: {
+            backgroundColor: 'rgba(255,255,255,0.97)',
+            titleColor: '#1E293B', bodyColor: '#475569',
+            borderColor: '#E2E8F0', borderWidth: 1, padding: 10,
+            callbacks: {
+              label: ctx => `  ${fmt(ctx.parsed.y)} 원 / ${fmt(ctx.parsed.x)} 클릭`
+            }
+          }
+        }
+      }
+    });
+    chartRef.current = chart;
+
+    /* ── 팬 / 줌 이벤트 ── */
+    let panState  = null;
+    let pinchState = null;
+
+    const getR  = () => canvas.getBoundingClientRect();
+    const cur   = c => { canvas.style.cursor = c; };
+    function pxOf(e) {
+      const r = getR();
+      const s = e.touches ? e.touches[0] : (e.changedTouches ? e.changedTouches[0] : e);
+      return { px: s.clientX - r.left, py: s.clientY - r.top };
+    }
+    function inArea(px, py) {
+      const a = chartRef.current.chartArea;
+      return a && px >= a.left && px <= a.right && py >= a.top && py <= a.bottom;
+    }
+
+    const onDown = e => {
+      if (e.button !== undefined && e.button !== 0) return;
+      e.preventDefault();
+      const { px, py } = pxOf(e);
+      if (inArea(px, py)) {
+        const ch = chartRef.current;
+        panState = { px, py, xMin: ch.scales.x.min, xMax: ch.scales.x.max,
+                              yMin: ch.scales.y.min, yMax: ch.scales.y.max };
+        cur('grabbing');
+      }
+    };
+    const onMove = e => {
+      if (!panState) return;
+      e.preventDefault();
+      const { px, py } = pxOf(e);
+      const ch   = chartRef.current;
+      const area = ch.chartArea;
+      if (!area) return;
+      cur('grabbing');
+      const xR = panState.xMax - panState.xMin, yR = panState.yMax - panState.yMin;
+      const w  = area.right - area.left,         h  = area.bottom - area.top;
+      ch.options.scales.x.min = panState.xMin - (px - panState.px) / w * xR;
+      ch.options.scales.x.max = panState.xMax - (px - panState.px) / w * xR;
+      ch.options.scales.y.min = panState.yMin + (py - panState.py) / h * yR;
+      ch.options.scales.y.max = panState.yMax + (py - panState.py) / h * yR;
+      ch.update('none');
+    };
+    const onUp = () => { panState = null; cur('grab'); };
+
+    const onWheel = e => {
+      e.preventDefault();
+      const { px, py } = pxOf(e);
+      const ch   = chartRef.current;
+      const area = ch.chartArea;
+      if (!area || !inArea(px, py)) return;
+      const zoom = e.deltaY > 0 ? 1.2 : 1 / 1.2;
+      const xs = ch.scales.x, ys = ch.scales.y;
+      const xR = xs.max - xs.min, yR = ys.max - ys.min;
+      const w  = area.right - area.left, h = area.bottom - area.top;
+      const cx = xs.min + (px - area.left) / w * xR;
+      const cy = ys.min + (1 - (py - area.top) / h) * yR;
+      const nxR = xR * zoom, nyR = yR * zoom;
+      ch.options.scales.x.min = cx - (cx - xs.min) / xR * nxR;
+      ch.options.scales.x.max = ch.options.scales.x.min + nxR;
+      ch.options.scales.y.min = cy - (cy - ys.min) / yR * nyR;
+      ch.options.scales.y.max = ch.options.scales.y.min + nyR;
+      ch.update('none');
+    };
+
+    /* 터치 핀치 줌 */
+    const onTouchStart = e => {
+      e.preventDefault();
+      if (e.touches.length === 2) {
+        panState = null;
+        const t0 = e.touches[0], t1 = e.touches[1];
+        const r  = getR();
+        const ch = chartRef.current;
+        pinchState = {
+          dist: Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY),
+          midPx: (t0.clientX + t1.clientX) / 2 - r.left,
+          midPy: (t0.clientY + t1.clientY) / 2 - r.top,
+          xMin: ch.scales.x.min, xMax: ch.scales.x.max,
+          yMin: ch.scales.y.min, yMax: ch.scales.y.max,
+        };
+      } else if (e.touches.length === 1) {
+        pinchState = null;
+        const r  = getR();
+        const px = e.touches[0].clientX - r.left;
+        const py = e.touches[0].clientY - r.top;
+        if (inArea(px, py)) {
+          const ch = chartRef.current;
+          panState = { px, py, xMin: ch.scales.x.min, xMax: ch.scales.x.max,
+                                yMin: ch.scales.y.min, yMax: ch.scales.y.max };
+        }
+      }
+    };
+    const onTouchMove = e => {
+      e.preventDefault();
+      const ch = chartRef.current;
+      if (e.touches.length === 2 && pinchState) {
+        const t0 = e.touches[0], t1 = e.touches[1];
+        const dist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
+        const zoom = pinchState.dist / dist;
+        const xR0  = pinchState.xMax - pinchState.xMin;
+        const yR0  = pinchState.yMax - pinchState.yMin;
+        const nxR  = xR0 * zoom, nyR = yR0 * zoom;
+        const area = ch.chartArea;
+        const w = area.right - area.left, h = area.bottom - area.top;
+        const cx = pinchState.xMin + (pinchState.midPx - area.left) / w * xR0;
+        const cy = pinchState.yMin + (1 - (pinchState.midPy - area.top) / h) * yR0;
+        ch.options.scales.x.min = cx - (cx - pinchState.xMin) / xR0 * nxR;
+        ch.options.scales.x.max = ch.options.scales.x.min + nxR;
+        ch.options.scales.y.min = cy - (cy - pinchState.yMin) / yR0 * nyR;
+        ch.options.scales.y.max = ch.options.scales.y.min + nyR;
+        ch.update('none');
+      } else if (e.touches.length === 1 && panState) {
+        const r  = getR();
+        const px = e.touches[0].clientX - r.left;
+        const py = e.touches[0].clientY - r.top;
+        const area = ch.chartArea;
+        const xR = panState.xMax - panState.xMin, yR = panState.yMax - panState.yMin;
+        const w  = area.right - area.left,         h  = area.bottom - area.top;
+        ch.options.scales.x.min = panState.xMin - (px - panState.px) / w * xR;
+        ch.options.scales.x.max = panState.xMax - (px - panState.px) / w * xR;
+        ch.options.scales.y.min = panState.yMin + (py - panState.py) / h * yR;
+        ch.options.scales.y.max = panState.yMax + (py - panState.py) / h * yR;
+        ch.update('none');
+      }
+    };
+    const onTouchEnd = e => {
+      if (e.touches.length === 0) { panState = null; pinchState = null; }
+      else if (e.touches.length < 2) { pinchState = null; }
+    };
+
+    resetZoomRef.current = () => {
+      const ch = chartRef.current;
+      if (!ch) return;
+      ch.options.scales.x.min = 0; ch.options.scales.x.max = X_MAX;
+      ch.options.scales.y.min = 0; ch.options.scales.y.max = Y_MAX;
+      ch.update();
+    };
+
+    canvas.addEventListener('mousedown',   onDown);
+    canvas.addEventListener('mousemove',   onMove);
+    canvas.addEventListener('mouseup',     onUp);
+    canvas.addEventListener('mouseleave',  onUp);
+    canvas.addEventListener('wheel',       onWheel,      { passive: false });
+    canvas.addEventListener('touchstart',  onTouchStart, { passive: false });
+    canvas.addEventListener('touchmove',   onTouchMove,  { passive: false });
+    canvas.addEventListener('touchend',    onTouchEnd);
+
+    return () => {
+      chart.destroy();
+      canvas.removeEventListener('mousedown',   onDown);
+      canvas.removeEventListener('mousemove',   onMove);
+      canvas.removeEventListener('mouseup',     onUp);
+      canvas.removeEventListener('mouseleave',  onUp);
+      canvas.removeEventListener('wheel',       onWheel);
+      canvas.removeEventListener('touchstart',  onTouchStart);
+      canvas.removeEventListener('touchmove',   onTouchMove);
+      canvas.removeEventListener('touchend',    onTouchEnd);
+    };
+  }, []);
+
+  /* ── 차트 데이터 갱신 ────────────────────────────── */
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    chart.data.datasets[0].data = buildBlue(F, C);
+    chart.data.datasets[1].data = [
+      { x: monthlyClicks, y: -1e6 }, { x: monthlyClicks, y: 1e6 }
+    ];
+    chart.update('none');
+  }, [F, C, monthlyClicks]);
+
+  /* ── 렌더 ──────────────────────────────────────────── */
+  return (
+    <div className="min-h-screen p-4 pb-12 max-w-3xl mx-auto">
+
+      {/* 헤더 */}
+      <div className="mb-5 pt-2">
+        <h1 className="text-xl font-bold text-slate-800 tracking-tight">손익분기점 그래프</h1>
+        <p className="text-xs text-slate-400 mt-0.5">고정비 · 월 클릭 수 → 클릭당 손익분기 단가 산출</p>
+      </div>
+
+      {/* 입력 패널 */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-4">
+        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">고정비 입력</p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          <NumInput label="기계 할부금 (원/월)" value={machine}      onChange={setMachine}      />
+          <NumInput label="인건비 (원/월)"        value={labor}        onChange={setLabor}        />
+          <NumInput label="감가상각 (원/월)"      value={depreciation} onChange={setDepreciation} />
+          <NumInput label="전기세 (원/월)"        value={electricity}  onChange={setElectricity}  />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* 월 예상 클릭 수 */}
+          <div>
+            <p className="text-xs font-medium text-slate-500 mb-1">월 예상 클릭 수</p>
+            <div className="flex items-center gap-2 mb-1">
+              <input type="range" min="1000" max="300000" step="1000"
+                value={monthlyClicks}
+                onChange={e => setMonthlyClicks(Number(e.target.value))}
+                className="flex-1 h-2"
+              />
+              <span className="text-xs font-bold text-orange-500 w-20 text-right whitespace-nowrap">
+                {fmt(monthlyClicks)}
+              </span>
+            </div>
+            <input type="number" min="1000" max="300000" value={monthlyClicks}
+              onChange={e => setMonthlyClicks(Math.max(1000, Math.min(300000, Number(e.target.value) || 1000)))}
+              className="w-full border border-slate-200 rounded-xl px-3 py-1.5 text-sm bg-white
+                         focus:outline-none focus:ring-2 focus:ring-blue-400 text-slate-700"
+            />
+          </div>
+
+          {/* 클릭비 + 요약 */}
+          <div>
+            <p className="text-xs font-medium text-slate-500 mb-1">계약된 클릭비</p>
+            <div className="flex gap-5 mt-1 mb-3">
+              {[['color','칼라 (28원)'],['bw','흑백 (12원)']].map(([v, label]) => (
+                <label key={v} className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <input type="radio" name="clickType" value={v}
+                    checked={clickType === v} onChange={() => setClickType(v)} className="w-4 h-4" />
+                  <span className="text-sm text-slate-700">{label}</span>
+                </label>
+              ))}
+            </div>
+            <div className="text-xs text-slate-500 space-y-0.5">
+              <p>총 고정비 <span className="font-semibold text-slate-700">{fmt(F)} 원/월</span></p>
+              <p>손익분기 단가
+                <span className="font-bold text-blue-600 ml-1">{fmt(bepNow)} 원/클릭</span>
+                <span className="text-slate-400 ml-1">({fmt(monthlyClicks)} 클릭 기준)</span>
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 차트 패널 */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-4">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">BEP 곡선</p>
+          <div className="flex gap-1.5 text-xs text-slate-400">
+            <span className="bg-slate-50 rounded-lg px-2 py-0.5">휠 · 핀치 → 줌</span>
+            <span className="bg-slate-50 rounded-lg px-2 py-0.5">드래그 → 이동</span>
+          </div>
+        </div>
+
+        <div className="chart-wrap" style={{ position: 'relative', height: '380px' }}>
+          <canvas ref={canvasRef}></canvas>
+        </div>
+
+        <div className="mt-2 flex justify-start">
+          <button onClick={() => resetZoomRef.current?.()}
+            className="text-xs text-slate-400 hover:text-blue-500 border border-slate-200
+                       hover:border-blue-300 rounded-lg px-3 py-1 transition">
+            뷰 초기화
+          </button>
+        </div>
+      </div>
+
+      {/* BEP 요약 카드 */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+        {[
+          { label: '총 고정비',       val: `${fmt(F)} 원/월`,        cls: 'text-slate-700' },
+          { label: '클릭당 변동비',   val: `${C} 원/클릭`,           cls: 'text-slate-700' },
+          { label: '손익분기 단가',   val: `${fmt(bepNow)} 원/클릭`, cls: 'text-blue-600'  },
+        ].map(({ label, val, cls }) => (
+          <div key={label} className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4">
+            <p className="text-xs text-slate-400 mb-1">{label}</p>
+            <p className={`text-base font-bold ${cls}`}>{val}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* 저장 & 내보내기 */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
+        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">저장 &amp; 내보내기</p>
+
+        {/* 액션 버튼 */}
+        <div className="flex flex-wrap gap-2 mb-5">
+          <button onClick={handleSave}
+            className="flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-xl
+                       bg-blue-500 hover:bg-blue-600 text-white transition shadow-sm">
+            💾 현재 상태 저장
+          </button>
+          <button onClick={handleExport}
+            className="flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-xl
+                       border border-emerald-300 text-emerald-700 hover:bg-emerald-50 transition shadow-sm">
+            ⬇ JSON 다운로드
+          </button>
+          <button onClick={handleCopy}
+            className="flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-xl
+                       border border-slate-300 text-slate-600 hover:bg-slate-50 transition shadow-sm">
+            {copyDone ? '✓ 복사됨!' : '📋 JSON 복사'}
+          </button>
+        </div>
+
+        {/* 내보내기 데이터 설명 */}
+        <div className="bg-slate-50 rounded-xl p-3 mb-5 text-xs text-slate-500 leading-relaxed">
+          <p className="font-semibold text-slate-600 mb-1">내보내기 JSON 포함 데이터</p>
+          <ul className="space-y-0.5 list-disc list-inside">
+            <li>고정비 항목별 값 및 합계 (F)</li>
+            <li>클릭비 종류 및 단가 (C)</li>
+            <li>기준 클릭 수에서의 손익분기 단가</li>
+            <li>300개 클릭 ~ 30만 클릭 구간별 BEP 단가 테이블</li>
+          </ul>
+        </div>
+
+        {/* 저장 목록 */}
+        <div>
+          <p className="text-xs font-semibold text-slate-400 mb-2">
+            저장된 상태 <span className="font-normal text-slate-300">({savedStates.length} / 10)</span>
+          </p>
+          {savedStates.length === 0 ? (
+            <p className="text-xs text-slate-300 py-3 text-center">저장된 상태가 없습니다</p>
+          ) : (
+            <div className="space-y-2">
+              {savedStates.map(s => (
+                <div key={s.id}
+                  className="flex items-center justify-between gap-2 rounded-xl border border-slate-100
+                             bg-slate-50 px-3 py-2.5 hover:border-slate-200 transition">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-slate-600 truncate">{s.savedAt}</p>
+                    <p className="text-xs text-slate-400">
+                      F: {fmt(s.F)}원 &nbsp;·&nbsp;
+                      {s.clickType === 'color' ? '칼라' : '흑백'} &nbsp;·&nbsp;
+                      기준 {fmt(s.monthlyClicks)} 클릭 &nbsp;·&nbsp;
+                      BEP <span className="text-blue-500 font-medium">{fmt(s.bepNow)}원</span>
+                    </p>
+                  </div>
+                  <div className="flex gap-1.5 shrink-0">
+                    <button onClick={() => handleLoad(s)}
+                      className="text-xs px-2.5 py-1 rounded-lg bg-blue-500 hover:bg-blue-600
+                                 text-white font-medium transition">
+                      불러오기
+                    </button>
+                    <button onClick={() => handleDelete(s.id)}
+                      className="text-xs px-2 py-1 rounded-lg border border-slate-200
+                                 text-slate-400 hover:text-red-400 hover:border-red-300 transition">
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <p className="text-center text-xs text-slate-300 mt-6">
+        손익분기점 그래프 · y = F/x + C
+      </p>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>손익분기점 그래프 앱 — 구조 전환 보고서</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap');
+    body { font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    @media print {
+      .no-print { display: none !important; }
+      body { background: white !important; }
+      .page-break { page-break-before: always; }
+      .shadow-sm { box-shadow: none !important; }
+    }
+    .section-num {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 28px; height: 28px; border-radius: 50%;
+      background: #3B82F6; color: white; font-size: 13px; font-weight: 700;
+      flex-shrink: 0;
+    }
+    .tag {
+      display: inline-block; padding: 2px 10px; border-radius: 9999px;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.03em;
+    }
+    .tree-item { font-family: 'Courier New', Courier, monospace; font-size: 13px; line-height: 1.8; }
+    code { background: #F1F5F9; border-radius: 4px; padding: 1px 6px; font-size: 12.5px; color: #334155; font-family: 'Courier New', Courier, monospace; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-700">
+
+  <!-- 인쇄 버튼 (화면 전용) -->
+  <div class="no-print fixed top-4 right-4 z-50">
+    <button onclick="window.print()"
+      class="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-4 py-2 rounded-xl shadow transition">
+      인쇄 / PDF 저장
+    </button>
+  </div>
+
+  <div class="max-w-4xl mx-auto px-6 py-12">
+
+    <!-- 표지 -->
+    <div class="mb-12 pb-8 border-b-2 border-blue-100">
+      <div class="flex items-center gap-2 mb-4">
+        <span class="tag bg-blue-100 text-blue-700">기술 보고서</span>
+        <span class="tag bg-slate-100 text-slate-500">내부 문서</span>
+      </div>
+      <h1 class="text-3xl font-bold text-slate-900 leading-tight mb-2">
+        손익분기점 그래프 앱<br>
+        <span class="text-blue-600">구조 전환 보고서</span>
+      </h1>
+      <p class="text-slate-500 text-sm mt-3">
+        단일 HTML 파일 방식 → Vite + React + Tailwind CSS 컴포넌트 방식으로의 전환 기록
+      </p>
+      <div class="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+        <div>
+          <p class="text-xs text-slate-400 mb-0.5">작성일</p>
+          <p class="font-semibold text-slate-700">2026-04-02</p>
+        </div>
+        <div>
+          <p class="text-xs text-slate-400 mb-0.5">버전</p>
+          <p class="font-semibold text-slate-700">v1.0.0</p>
+        </div>
+        <div>
+          <p class="text-xs text-slate-400 mb-0.5">상태</p>
+          <p class="font-semibold text-emerald-600">완료</p>
+        </div>
+        <div>
+          <p class="text-xs text-slate-400 mb-0.5">분류</p>
+          <p class="font-semibold text-slate-700">앱 구조 개선</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 1. 개요 -->
+    <section class="mb-10">
+      <div class="flex items-center gap-3 mb-5">
+        <span class="section-num">1</span>
+        <h2 class="text-xl font-bold text-slate-800">개요</h2>
+      </div>
+
+      <div class="grid md:grid-cols-2 gap-4">
+        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+          <p class="text-xs font-semibold text-blue-500 uppercase tracking-wider mb-2">목적</p>
+          <p class="text-sm leading-relaxed text-slate-600">
+            기존 단일 <code>index.html</code> 파일로 구성된 손익분기점 그래프 앱을,
+            유지보수성과 확장성이 높은 <strong class="text-slate-800">Vite + React + Tailwind CSS</strong>
+            기반의 컴포넌트 구조로 전환하여 향후 기능 추가 및 외부 서비스 연동을 원활하게 합니다.
+          </p>
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+          <p class="text-xs font-semibold text-orange-500 uppercase tracking-wider mb-2">배경</p>
+          <p class="text-sm leading-relaxed text-slate-600">
+            손익분기점 계산기는 복합기 임대/할부 사업에서 <strong class="text-slate-800">클릭당 청구 가격이 수익을 내는 데
+            필요한 최소 단가</strong>를 즉시 파악하기 위해 제작되었습니다.
+            초기에는 빠른 프로토타입 목적으로 HTML 단일 파일로 제작되었으나,
+            Supabase 연동·다중 사용자 지원 등 2단계 확장을 앞두고 구조적 전환이 필요해졌습니다.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. 전환 전 구조 -->
+    <section class="mb-10">
+      <div class="flex items-center gap-3 mb-5">
+        <span class="section-num">2</span>
+        <h2 class="text-xl font-bold text-slate-800">전환 전 — 현재 구조</h2>
+      </div>
+
+      <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 mb-4">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">기술 스택</p>
+        <div class="flex flex-wrap gap-2">
+          <span class="tag bg-yellow-50 text-yellow-700 border border-yellow-200">HTML5 (단일 파일)</span>
+          <span class="tag bg-slate-50 text-slate-600 border border-slate-200">Vanilla JavaScript (ES6+)</span>
+          <span class="tag bg-sky-50 text-sky-700 border border-sky-200">Tailwind CSS CDN</span>
+          <span class="tag bg-indigo-50 text-indigo-700 border border-indigo-200">Chart.js CDN</span>
+          <span class="tag bg-orange-50 text-orange-700 border border-orange-200">localStorage</span>
+        </div>
+      </div>
+
+      <div class="grid md:grid-cols-2 gap-4">
+        <div class="bg-white rounded-2xl border border-emerald-100 shadow-sm p-5">
+          <p class="text-xs font-semibold text-emerald-600 uppercase tracking-wider mb-3">장점</p>
+          <ul class="text-sm text-slate-600 space-y-2">
+            <li class="flex gap-2"><span class="text-emerald-500 font-bold mt-0.5">+</span><span>파일 하나로 즉시 실행 가능 (서버 불필요)</span></li>
+            <li class="flex gap-2"><span class="text-emerald-500 font-bold mt-0.5">+</span><span>공유가 쉬움 (USB, 이메일 첨부)</span></li>
+            <li class="flex gap-2"><span class="text-emerald-500 font-bold mt-0.5">+</span><span>개발 환경 설정 없이 브라우저에서 바로 동작</span></li>
+            <li class="flex gap-2"><span class="text-emerald-500 font-bold mt-0.5">+</span><span>빠른 프로토타이핑에 적합</span></li>
+          </ul>
+        </div>
+        <div class="bg-white rounded-2xl border border-red-100 shadow-sm p-5">
+          <p class="text-xs font-semibold text-red-500 uppercase tracking-wider mb-3">단점 · 한계</p>
+          <ul class="text-sm text-slate-600 space-y-2">
+            <li class="flex gap-2"><span class="text-red-400 font-bold mt-0.5">-</span><span>HTML · CSS · JS가 한 파일에 혼합 → 유지보수 어려움</span></li>
+            <li class="flex gap-2"><span class="text-red-400 font-bold mt-0.5">-</span><span>기능 추가 시 파일이 복잡해지고 버그 위험 증가</span></li>
+            <li class="flex gap-2"><span class="text-red-400 font-bold mt-0.5">-</span><span>외부 API·DB 연동 구조 추가가 어려움</span></li>
+            <li class="flex gap-2"><span class="text-red-400 font-bold mt-0.5">-</span><span>CDN 의존 — 오프라인 환경에서 라이브러리 미로드</span></li>
+            <li class="flex gap-2"><span class="text-red-400 font-bold mt-0.5">-</span><span>팀 협업·버전 관리 시 충돌 해결 난이도 높음</span></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. 전환 후 구조 -->
+    <section class="mb-10 page-break">
+      <div class="flex items-center gap-3 mb-5">
+        <span class="section-num">3</span>
+        <h2 class="text-xl font-bold text-slate-800">전환 후 — 최종 구조</h2>
+      </div>
+
+      <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 mb-4">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">기술 스택</p>
+        <div class="flex flex-wrap gap-2">
+          <span class="tag bg-violet-50 text-violet-700 border border-violet-200">Vite 5</span>
+          <span class="tag bg-sky-50 text-sky-700 border border-sky-200">React 18</span>
+          <span class="tag bg-teal-50 text-teal-700 border border-teal-200">Tailwind CSS 3</span>
+          <span class="tag bg-indigo-50 text-indigo-700 border border-indigo-200">Chart.js 4 (npm)</span>
+          <span class="tag bg-orange-50 text-orange-700 border border-orange-200">localStorage</span>
+          <span class="tag bg-slate-50 text-slate-600 border border-slate-200">PostCSS + Autoprefixer</span>
+        </div>
+      </div>
+
+      <!-- 폴더 트리 -->
+      <div class="bg-slate-900 rounded-2xl p-5 mb-4 overflow-x-auto">
+        <p class="text-xs text-slate-400 mb-3 font-semibold uppercase tracking-wider">프로젝트 폴더 트리</p>
+        <div class="tree-item text-slate-200">
+          <div>bep-app/</div>
+          <div class="ml-4 text-slate-400">├── index.html</div>
+          <div class="ml-4 text-slate-400">├── package.json</div>
+          <div class="ml-4 text-slate-400">├── vite.config.js</div>
+          <div class="ml-4 text-slate-400">├── tailwind.config.js</div>
+          <div class="ml-4 text-slate-400">├── postcss.config.js</div>
+          <div class="ml-4 text-slate-400">├── start.bat</div>
+          <div class="ml-4 text-slate-400">└── src/</div>
+          <div class="ml-10 text-slate-300">├── main.jsx</div>
+          <div class="ml-10 text-slate-300">├── App.jsx</div>
+          <div class="ml-10 text-slate-300">├── index.css</div>
+          <div class="ml-10 text-slate-400">├── components/</div>
+          <div class="ml-16 text-slate-300">├── InputPanel.jsx</div>
+          <div class="ml-16 text-slate-300">├── ChartPanel.jsx</div>
+          <div class="ml-16 text-slate-300">├── SummaryCards.jsx</div>
+          <div class="ml-16 text-slate-300">├── SavePanel.jsx</div>
+          <div class="ml-16 text-slate-300">└── NumInput.jsx</div>
+          <div class="ml-10 text-slate-400">└── utils/</div>
+          <div class="ml-16 text-slate-300">├── chartUtils.js</div>
+          <div class="ml-16 text-slate-300">└── storageUtils.js</div>
+        </div>
+      </div>
+
+      <!-- 파일별 역할 -->
+      <div class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-slate-50 border-b border-slate-100">
+            <tr>
+              <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-56">파일</th>
+              <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">역할 설명</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-50">
+            <tr class="hover:bg-slate-50 transition">
+              <td class="px-4 py-3"><code>index.html</code></td>
+              <td class="px-4 py-3 text-slate-600">앱 진입점 HTML. React가 마운트될 <code>&lt;div id="root"&gt;</code> 포함</td>
+            </tr>
+            <tr class="hover:bg-slate-50 transition">
+              <td class="px-4 py-3"><code>src/main.jsx</code></td>
+              <td class="px-4 py-3 text-slate-600">React 루트 렌더링 시작점. App 컴포넌트를 DOM에 연결</td>
+            </tr>
+            <tr class="hover:bg-slate-50 transition">
+              <td class="px-4 py-3"><code>src/App.jsx</code></td>
+              <td class="px-4 py-3 text-slate-600">최상위 컴포넌트. 전체 상태(state) 관리 및 하위 컴포넌트 조합</td>
+            </tr>
+            <tr class="hover:bg-slate-50 transition">
+              <td class="px-4 py-3"><code>src/index.css</code></td>
+              <td class="px-4 py-3 text-slate-600">Tailwind CSS 글로벌 스타일 및 커스텀 CSS 정의</td>
+            </tr>
+            <tr class="hover:bg-slate-50 transition">
+              <td class="px-4 py-3"><code>components/InputPanel.jsx</code></td>
+              <td class="px-4 py-3 text-slate-600">고정비 4항목 입력 + 월 클릭 수 슬라이더 + 클릭비 선택 UI</td>
+            </tr>
+            <tr class="hover:bg-slate-50 transition">
+              <td class="px-4 py-3"><code>components/ChartPanel.jsx</code></td>
+              <td class="px-4 py-3 text-slate-600">BEP 곡선 Chart.js 렌더링. 드래그 이동·휠 줌·핀치 줌 직접 구현</td>
+            </tr>
+            <tr class="hover:bg-slate-50 transition">
+              <td class="px-4 py-3"><code>components/SummaryCards.jsx</code></td>
+              <td class="px-4 py-3 text-slate-600">총 고정비 · 변동비 · 손익분기 단가를 카드 형태로 요약 표시</td>
+            </tr>
+            <tr class="hover:bg-slate-50 transition">
+              <td class="px-4 py-3"><code>components/SavePanel.jsx</code></td>
+              <td class="px-4 py-3 text-slate-600">상태 저장·불러오기, JSON 다운로드·클립보드 복사 기능</td>
+            </tr>
+            <tr class="hover:bg-slate-50 transition">
+              <td class="px-4 py-3"><code>components/NumInput.jsx</code></td>
+              <td class="px-4 py-3 text-slate-600">숫자 입력 공통 컴포넌트 (레이블 + 입력란 + "원" 단위 표시)</td>
+            </tr>
+            <tr class="hover:bg-slate-50 transition">
+              <td class="px-4 py-3"><code>utils/chartUtils.js</code></td>
+              <td class="px-4 py-3 text-slate-600">BEP 계산 함수, 그래프 좌표 생성, 숫자 포맷 유틸리티</td>
+            </tr>
+            <tr class="hover:bg-slate-50 transition">
+              <td class="px-4 py-3"><code>utils/storageUtils.js</code></td>
+              <td class="px-4 py-3 text-slate-600">localStorage 저장/불러오기 함수 (저장 상태 영속화)</td>
+            </tr>
+            <tr class="hover:bg-slate-50 transition">
+              <td class="px-4 py-3"><code>start.bat</code></td>
+              <td class="px-4 py-3 text-slate-600">Windows에서 더블클릭으로 npm install + 개발 서버 실행</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 4. 전환 과정 -->
+    <section class="mb-10">
+      <div class="flex items-center gap-3 mb-5">
+        <span class="section-num">4</span>
+        <h2 class="text-xl font-bold text-slate-800">전환 과정 상세</h2>
+      </div>
+
+      <div class="space-y-3">
+        <!-- Step 1 -->
+        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+          <div class="flex items-start gap-4">
+            <div class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-50 text-blue-600 font-bold text-sm flex items-center justify-center">1</div>
+            <div>
+              <p class="font-semibold text-slate-800 mb-1">프로젝트 뼈대 파일 생성</p>
+              <p class="text-sm text-slate-500 leading-relaxed">
+                <code>package.json</code>, <code>vite.config.js</code>, <code>tailwind.config.js</code>,
+                <code>postcss.config.js</code>, <code>index.html</code>을 명세에 따라 작성.
+                Vite가 React JSX를 처리할 수 있도록 <code>@vitejs/plugin-react</code> 플러그인 설정.
+                Tailwind CSS가 <code>src/</code> 내 모든 JSX 파일을 스캔하도록 <code>content</code> 경로 지정.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+          <div class="flex items-start gap-4">
+            <div class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-50 text-blue-600 font-bold text-sm flex items-center justify-center">2</div>
+            <div>
+              <p class="font-semibold text-slate-800 mb-1">유틸리티 함수 분리</p>
+              <p class="text-sm text-slate-500 leading-relaxed">
+                기존 단일 파일 내에 혼재하던 계산 로직을 역할별로 분리.
+                <code>chartUtils.js</code>에 BEP 계산 (<code>bepAt</code>), 그래프 포인트 생성 (<code>buildBlue</code>),
+                숫자 포맷 (<code>fmt</code>), 상수(<code>X_MAX</code>, <code>Y_MAX</code>, <code>SAMPLE_X</code>)를 집중.
+                <code>storageUtils.js</code>에 <code>localStorage</code> 입출력만 담당하도록 단일 책임 원칙 적용.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 3 -->
+        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+          <div class="flex items-start gap-4">
+            <div class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-50 text-blue-600 font-bold text-sm flex items-center justify-center">3</div>
+            <div>
+              <p class="font-semibold text-slate-800 mb-1">UI를 역할별 컴포넌트로 분해</p>
+              <p class="text-sm text-slate-500 leading-relaxed">
+                화면을 기능 단위로 나누어 5개의 React 컴포넌트로 분리.
+                <code>InputPanel</code>(입력), <code>ChartPanel</code>(시각화), <code>SummaryCards</code>(요약),
+                <code>SavePanel</code>(저장/내보내기), <code>NumInput</code>(공통 입력 위젯).
+                각 컴포넌트는 필요한 데이터만 props로 전달받아 독립적으로 동작.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 4 -->
+        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+          <div class="flex items-start gap-4">
+            <div class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-50 text-blue-600 font-bold text-sm flex items-center justify-center">4</div>
+            <div>
+              <p class="font-semibold text-slate-800 mb-1">Chart.js 팬/줌 직접 구현 (플러그인 없이)</p>
+              <p class="text-sm text-slate-500 leading-relaxed">
+                <code>chartjs-plugin-zoom</code> 외부 플러그인 대신 마우스·터치 이벤트를
+                직접 <code>canvas</code>에 등록하여 드래그(이동)·휠 줌·핀치 줌을 구현.
+                React <code>useEffect</code>의 cleanup 함수에서 이벤트 리스너를 모두 제거,
+                컴포넌트 언마운트 시 메모리 누수 방지.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 5 -->
+        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+          <div class="flex items-start gap-4">
+            <div class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-50 text-blue-600 font-bold text-sm flex items-center justify-center">5</div>
+            <div>
+              <p class="font-semibold text-slate-800 mb-1">상태 관리 중앙화 (App.jsx)</p>
+              <p class="text-sm text-slate-500 leading-relaxed">
+                기계 할부금·인건비·감가상각·전기세·월 클릭 수·클릭 종류 등 모든 입력 상태를
+                <code>App.jsx</code>의 <code>useState</code>로 중앙 관리.
+                파생값(<code>F</code> 총 고정비, <code>C</code> 변동비, <code>bepNow</code> 현재 손익분기 단가)은
+                렌더 시 실시간 계산하여 prop으로 전달, 데이터 일관성 보장.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 6 -->
+        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+          <div class="flex items-start gap-4">
+            <div class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-50 text-blue-600 font-bold text-sm flex items-center justify-center">6</div>
+            <div>
+              <p class="font-semibold text-slate-800 mb-1">npm install 및 패키지 설치 완료</p>
+              <p class="text-sm text-slate-500 leading-relaxed">
+                <code>npm install</code> 실행으로 <strong class="text-slate-700">131개 패키지</strong> 설치 완료.
+                의존성: React 18, Chart.js 4, react-dom.
+                개발 의존성: Vite 5, @vitejs/plugin-react, Tailwind CSS 3, PostCSS, Autoprefixer.
+                <code>node_modules/</code> 생성, <code>package-lock.json</code>으로 버전 고정.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. 실행 방법 -->
+    <section class="mb-10">
+      <div class="flex items-center gap-3 mb-5">
+        <span class="section-num">5</span>
+        <h2 class="text-xl font-bold text-slate-800">실행 방법</h2>
+      </div>
+
+      <div class="grid md:grid-cols-2 gap-4">
+        <!-- 방법 A -->
+        <div class="bg-white rounded-2xl border border-blue-100 shadow-sm p-5">
+          <p class="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-3">방법 A — 더블클릭 (Windows)</p>
+          <ol class="text-sm text-slate-600 space-y-2 list-decimal list-inside">
+            <li>탐색기에서 <code>bep-app/</code> 폴더 열기</li>
+            <li><code>start.bat</code> 더블클릭</li>
+            <li>터미널이 열리며 자동으로 npm install → 개발 서버 시작</li>
+            <li>브라우저에서 <code class="text-blue-600">http://localhost:5173</code> 접속</li>
+          </ol>
+        </div>
+
+        <!-- 방법 B -->
+        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+          <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">방법 B — 터미널 명령</p>
+          <div class="bg-slate-900 rounded-xl p-3 text-xs text-slate-200 font-mono space-y-1">
+            <p><span class="text-slate-500"># bep-app 폴더로 이동</span></p>
+            <p><span class="text-emerald-400">cd</span> bep-app</p>
+            <p>&nbsp;</p>
+            <p><span class="text-slate-500"># (최초 1회만) 패키지 설치</span></p>
+            <p><span class="text-emerald-400">npm</span> install</p>
+            <p>&nbsp;</p>
+            <p><span class="text-slate-500"># 개발 서버 시작</span></p>
+            <p><span class="text-emerald-400">npm</span> run dev</p>
+          </div>
+          <p class="text-xs text-slate-400 mt-2">브라우저에서 <code>http://localhost:5173</code> 자동 열림</p>
+        </div>
+      </div>
+
+      <div class="mt-4 bg-amber-50 border border-amber-200 rounded-2xl p-4">
+        <p class="text-xs font-semibold text-amber-700 mb-1">참고 — 배포 빌드가 필요한 경우</p>
+        <p class="text-sm text-amber-600">
+          <code>npm run build</code> 실행 시 <code>dist/</code> 폴더에 최적화된 정적 파일이 생성됩니다.
+          이 파일들을 웹 서버(Nginx, Apache, Netlify, Vercel 등)에 올리면 외부에서도 접근 가능합니다.
+        </p>
+      </div>
+    </section>
+
+    <!-- 6. 향후 로드맵 -->
+    <section class="mb-10 page-break">
+      <div class="flex items-center gap-3 mb-5">
+        <span class="section-num">6</span>
+        <h2 class="text-xl font-bold text-slate-800">향후 로드맵</h2>
+      </div>
+
+      <div class="space-y-4">
+        <!-- 현재 -->
+        <div class="relative pl-8">
+          <div class="absolute left-0 top-1 w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center">
+            <div class="w-2 h-2 rounded-full bg-white"></div>
+          </div>
+          <div class="absolute left-2.5 top-6 bottom-0 w-0.5 bg-slate-200"></div>
+          <div class="bg-emerald-50 border border-emerald-200 rounded-2xl p-4">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="tag bg-emerald-500 text-white text-xs">완료</span>
+              <p class="font-semibold text-slate-800 text-sm">1단계 — Vite + React 로컬 앱</p>
+            </div>
+            <p class="text-xs text-slate-500 leading-relaxed">
+              단일 HTML → 컴포넌트 기반 React 앱으로 전환 완료.
+              localStorage 기반 상태 저장, JSON 내보내기, BEP 곡선 인터랙티브 차트 구현.
+              개발 서버(<code>npm run dev</code>)로 로컬 실행 가능.
+            </p>
+          </div>
+        </div>
+
+        <!-- 2단계 -->
+        <div class="relative pl-8">
+          <div class="absolute left-0 top-1 w-5 h-5 rounded-full bg-blue-300 flex items-center justify-center">
+            <div class="w-2 h-2 rounded-full bg-white"></div>
+          </div>
+          <div class="absolute left-2.5 top-6 bottom-0 w-0.5 bg-slate-200"></div>
+          <div class="bg-white border border-blue-100 rounded-2xl p-4">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="tag bg-blue-100 text-blue-700">예정</span>
+              <p class="font-semibold text-slate-800 text-sm">2단계 — Supabase 클라우드 연동</p>
+            </div>
+            <ul class="text-xs text-slate-500 space-y-1 mt-2">
+              <li>- Supabase (PostgreSQL 기반 BaaS) 프로젝트 생성</li>
+              <li>- 저장 상태를 localStorage 대신 Supabase DB에 영속화</li>
+              <li>- 이메일/소셜 로그인으로 다중 사용자 분리</li>
+              <li>- 영업 담당자별 BEP 설정 조회 및 공유 기능</li>
+              <li>- 실시간 구독(Realtime)으로 동시 편집 지원 검토</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- 3단계 -->
+        <div class="relative pl-8">
+          <div class="absolute left-0 top-1 w-5 h-5 rounded-full bg-slate-300 flex items-center justify-center">
+            <div class="w-2 h-2 rounded-full bg-white"></div>
+          </div>
+          <div class="bg-white border border-slate-100 rounded-2xl p-4">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="tag bg-slate-100 text-slate-500">장기</span>
+              <p class="font-semibold text-slate-800 text-sm">3단계 — PostgreSQL 자체 서버 구축</p>
+            </div>
+            <ul class="text-xs text-slate-500 space-y-1 mt-2">
+              <li>- 사내 서버 또는 클라우드 VM에 PostgreSQL 직접 설치</li>
+              <li>- Node.js (Express) 또는 Python (FastAPI) 백엔드 API 서버 구축</li>
+              <li>- 고객별 계약 정보·클릭 요금 이력 관리 테이블 설계</li>
+              <li>- 월별 BEP 추이 대시보드 및 엑셀 보고서 자동 생성</li>
+              <li>- 사내 인트라넷 배포 및 권한 관리(역할 기반 접근 제어)</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7. 기술 용어 설명 -->
+    <section class="mb-10">
+      <div class="flex items-center gap-3 mb-5">
+        <span class="section-num">7</span>
+        <h2 class="text-xl font-bold text-slate-800">기술 용어 설명</h2>
+      </div>
+      <p class="text-xs text-slate-400 mb-4">개발 배경이 없는 분들도 이해할 수 있도록 쉬운 언어로 설명합니다.</p>
+
+      <div class="grid md:grid-cols-2 gap-3">
+
+        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+          <div class="flex items-center gap-2 mb-1.5">
+            <span class="tag bg-violet-100 text-violet-700">Vite</span>
+            <span class="text-xs text-slate-400">개발 도구</span>
+          </div>
+          <p class="text-sm text-slate-600 leading-relaxed">
+            웹 앱을 빠르게 개발·빌드해주는 도구입니다.
+            코드를 수정하면 브라우저가 즉시 반영해주는 "핫 리로드" 기능을 제공합니다.
+            마치 자동 저장되는 워드 프로세서처럼, 저장할 때마다 화면이 바로 바뀝니다.
+          </p>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+          <div class="flex items-center gap-2 mb-1.5">
+            <span class="tag bg-sky-100 text-sky-700">React</span>
+            <span class="text-xs text-slate-400">UI 라이브러리</span>
+          </div>
+          <p class="text-sm text-slate-600 leading-relaxed">
+            화면을 "컴포넌트"라는 부품 단위로 나누어 만드는 방식입니다.
+            레고 블록처럼 작은 부품(버튼, 입력창, 카드)을 조립해 전체 화면을 구성합니다.
+            데이터가 바뀌면 해당 부분만 자동으로 화면이 갱신됩니다.
+          </p>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+          <div class="flex items-center gap-2 mb-1.5">
+            <span class="tag bg-teal-100 text-teal-700">Tailwind CSS</span>
+            <span class="text-xs text-slate-400">스타일링 도구</span>
+          </div>
+          <p class="text-sm text-slate-600 leading-relaxed">
+            화면의 색상·여백·크기 등을 미리 만들어진 짧은 이름으로 바로 적용하는 디자인 도구입니다.
+            예를 들어 <code>text-blue-600</code>이라고 쓰면 파란 글자가 됩니다.
+            별도의 CSS 파일 없이도 일관된 디자인을 빠르게 구현할 수 있습니다.
+          </p>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+          <div class="flex items-center gap-2 mb-1.5">
+            <span class="tag bg-orange-100 text-orange-700">npm</span>
+            <span class="text-xs text-slate-400">패키지 관리자</span>
+          </div>
+          <p class="text-sm text-slate-600 leading-relaxed">
+            Node.js의 "앱 스토어"입니다. <code>npm install</code> 명령 하나로
+            필요한 라이브러리(React, Chart.js 등)를 인터넷에서 자동으로 내려받아 설치합니다.
+            <code>package.json</code>은 어떤 라이브러리가 필요한지 적어둔 장바구니 목록입니다.
+          </p>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+          <div class="flex items-center gap-2 mb-1.5">
+            <span class="tag bg-indigo-100 text-indigo-700">컴포넌트</span>
+            <span class="text-xs text-slate-400">React 핵심 개념</span>
+          </div>
+          <p class="text-sm text-slate-600 leading-relaxed">
+            화면의 한 부분을 독립적으로 담당하는 코드 단위입니다.
+            이 앱에서는 입력 패널, 그래프, 요약 카드, 저장 패널이 각각 별도 컴포넌트입니다.
+            한 컴포넌트를 수정해도 다른 컴포넌트에 영향을 주지 않아 유지보수가 쉽습니다.
+          </p>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+          <div class="flex items-center gap-2 mb-1.5">
+            <span class="tag bg-orange-100 text-orange-700">localStorage</span>
+            <span class="text-xs text-slate-400">브라우저 저장소</span>
+          </div>
+          <p class="text-sm text-slate-600 leading-relaxed">
+            브라우저 안에 데이터를 저장하는 작은 메모장입니다.
+            앱을 닫았다 열어도 데이터가 남아 있습니다. 단, 같은 컴퓨터·같은 브라우저에서만
+            유지되며 다른 기기와 공유하려면 서버 DB가 필요합니다(2단계 목표).
+          </p>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+          <div class="flex items-center gap-2 mb-1.5">
+            <span class="tag bg-emerald-100 text-emerald-700">Supabase</span>
+            <span class="text-xs text-slate-400">클라우드 DB 서비스</span>
+          </div>
+          <p class="text-sm text-slate-600 leading-relaxed">
+            서버를 직접 운영하지 않아도 PostgreSQL 데이터베이스와 로그인 기능을
+            클라우드에서 바로 쓸 수 있는 서비스입니다.
+            엑셀 파일 공유 대신 인터넷을 통해 여러 명이 동시에 같은 데이터를 보고 편집할 수 있게 해줍니다.
+          </p>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+          <div class="flex items-center gap-2 mb-1.5">
+            <span class="tag bg-slate-200 text-slate-700">JSX</span>
+            <span class="text-xs text-slate-400">React 문법</span>
+          </div>
+          <p class="text-sm text-slate-600 leading-relaxed">
+            JavaScript 코드 안에 HTML처럼 생긴 태그를 바로 쓸 수 있는 문법입니다.
+            <code>.jsx</code> 확장자 파일에 사용됩니다.
+            Vite가 이 파일을 브라우저가 이해할 수 있는 일반 JavaScript로 자동 변환해줍니다.
+          </p>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- 푸터 -->
+    <footer class="border-t border-slate-200 pt-6 mt-8">
+      <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs text-slate-400">
+        <div>
+          <p class="font-semibold text-slate-500">손익분기점 그래프 앱 — 구조 전환 보고서</p>
+          <p>작성일: 2026-04-02 &nbsp;·&nbsp; 버전: v1.0.0 &nbsp;·&nbsp; 내부 문서</p>
+        </div>
+        <div class="text-right">
+          <p>경로: <code>C:/Users/admin/Desktop/BEP-Claude.code/bep-app/</code></p>
+          <p>개발 서버: <code>npm run dev</code> → <code>http://localhost:5173</code></p>
+        </div>
+      </div>
+    </footer>
+
+  </div>
+</body>
+</html>
