@@ -4,9 +4,16 @@ import Chart from 'chart.js/auto';
 import { loadLatestSaveDB } from '../utils/supabaseUtils.js';
 import { fmt } from '../utils/chartUtils.js';
 
-const STORAGE_KEY = 'printTiers_v3';
-const FORMULA_KEY = 'printFormula_v1';
-const MAX_PRICE   = 3500;
+const STORAGE_KEY       = 'printTiers_v3';
+const FORMULA_KEY       = 'printFormula_v1';
+const TIER_SAVES_KEY    = 'printTiers_saves';
+const FORMULA_SAVES_KEY = 'printFormula_saves';
+const MAX_PRICE         = 3500;
+
+function fmtNow() {
+  const d = new Date();
+  return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
 
 const PAPER_DATA = [
   { type: '백색모조지',         weight: 260, price: 66  },
@@ -55,11 +62,11 @@ function generateTiers(minC, maxC, mid, bepNow) {
   return tiers;
 }
 
-function formulaPrice(x, minC, maxC, k, minPrice) {
-  if (x <= minC) return MAX_PRICE;
+function formulaPrice(x, minC, maxC, k, minPrice, maxPrice) {
+  if (x <= minC) return maxPrice;
   if (x >= maxC) return minPrice;
   const t = (x - minC) / (maxC - minC);
-  return Math.round(minPrice + (MAX_PRICE - minPrice) * Math.pow(1 - t, k));
+  return Math.round(minPrice + (maxPrice - minPrice) * Math.pow(1 - t, k));
 }
 
 /* ── 구간 step 차트 ──────────────────────────────────────── */
@@ -130,7 +137,7 @@ function TierChart({ tiers, bepNow }) {
 
 /* ── 수식 곡선 차트 ──────────────────────────────────────── */
 
-function FormulaChart({ minClicks, maxClicks, curveK, bepNow }) {
+function FormulaChart({ minClicks, maxClicks, curveK, bepNow, formulaMaxPrice }) {
   const canvasRef = useRef(null);
   const chartRef  = useRef(null);
 
@@ -178,14 +185,14 @@ function FormulaChart({ minClicks, maxClicks, curveK, bepNow }) {
     const pts      = [];
     for (let i = 0; i <= 200; i++) {
       const x = (xMax / 200) * i;
-      pts.push({ x, y: formulaPrice(x, minClicks, maxClicks, curveK, minPrice) });
+      pts.push({ x, y: formulaPrice(x, minClicks, maxClicks, curveK, minPrice, formulaMaxPrice) });
     }
     chart.data.datasets[0].data = pts;
     chart.data.datasets[1].data = [{ x: 0, y: bepNow }, { x: xMax, y: bepNow }];
     chart.options.scales.x.max  = xMax;
-    chart.options.scales.y.max  = Math.round(MAX_PRICE * 1.2 / 100) * 100;
+    chart.options.scales.y.max  = Math.round(formulaMaxPrice * 1.2 / 100) * 100;
     chart.update('none');
-  }, [minClicks, maxClicks, curveK, bepNow]);
+  }, [minClicks, maxClicks, curveK, bepNow, formulaMaxPrice]);
 
   return <div style={{ position: 'relative', height: '240px' }}><canvas ref={canvasRef}></canvas></div>;
 }
@@ -243,12 +250,19 @@ export default function PrintCostSimulator() {
   const [midCount, setMidCount]   = useState(3);
   const [tiers, setTiers]         = useState(null);
   const [saveDone, setSaveDone]   = useState(false);
+  const [tierSnapshots,    setTierSnapshots]    = useState([]);
+  const [showTierLoad,     setShowTierLoad]     = useState(false);
+  const tierLoadRef = useRef(null);
   const [editingIdx, setEditingIdx] = useState(-1);
   const [editingRaw, setEditingRaw] = useState('');
 
   // Phase 2 전용
-  const [curveK, setCurveK]       = useState(0.5);
+  const [curveK, setCurveK]             = useState(0.5);
+  const [formulaMaxPrice, setFormulaMaxPrice] = useState(3500);
   const [formulaSaveDone, setFormulaSaveDone] = useState(false);
+  const [formulaSnapshots, setFormulaSnapshots] = useState([]);
+  const [showFormulaLoad,  setShowFormulaLoad]  = useState(false);
+  const formulaLoadRef = useRef(null);
 
   // Job 계산기 — 공통
   const [jobCopies,     setJobCopies]     = useState('');
@@ -293,9 +307,33 @@ export default function PrintCostSimulator() {
   useEffect(() => {
     try {
       const stored = JSON.parse(localStorage.getItem(FORMULA_KEY));
-      if (stored) setCurveK(stored.curveK ?? 0.5);
+      if (stored) {
+        setCurveK(stored.curveK ?? 0.5);
+        setFormulaMaxPrice(stored.formulaMaxPrice ?? 3500);
+      }
     } catch {}
   }, []);
+
+  /* localStorage → 스냅샷 목록 초기화 */
+  useEffect(() => {
+    try {
+      const t = JSON.parse(localStorage.getItem(TIER_SAVES_KEY));
+      if (Array.isArray(t)) setTierSnapshots(t);
+      const f = JSON.parse(localStorage.getItem(FORMULA_SAVES_KEY));
+      if (Array.isArray(f)) setFormulaSnapshots(f);
+    } catch {}
+  }, []);
+
+  /* 드롭다운 click-outside 닫기 */
+  useEffect(() => {
+    if (!showTierLoad && !showFormulaLoad) return;
+    function onDown(e) {
+      if (showTierLoad    && tierLoadRef.current    && !tierLoadRef.current.contains(e.target))    setShowTierLoad(false);
+      if (showFormulaLoad && formulaLoadRef.current && !formulaLoadRef.current.contains(e.target)) setShowFormulaLoad(false);
+    }
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [showTierLoad, showFormulaLoad]);
 
   /* ── Phase 1 핸들러 */
   function persistTiers(minC, maxC, mid, t) {
@@ -360,22 +398,58 @@ export default function PrintCostSimulator() {
   function resetTiers() { setEditingIdx(-1); applyTierParams(100, 5000, 3); }
   function handleTierSave() {
     persistTiers(minClicks, maxClicks, midCount, tiers);
+    const snap = { id: Date.now(), ts: fmtNow(), minClicks, maxClicks, midCount, tiers };
+    const next = [snap, ...tierSnapshots].slice(0, 5);
+    setTierSnapshots(next);
+    localStorage.setItem(TIER_SAVES_KEY, JSON.stringify(next));
     setSaveDone(true);
     setTimeout(() => setSaveDone(false), 1500);
   }
+  function handleTierLoadSnap(snap) {
+    setMinClicks(snap.minClicks);
+    setMaxClicks(snap.maxClicks);
+    setMidCount(snap.midCount);
+    setTiers(snap.tiers);
+    setEditingIdx(-1);
+    setShowTierLoad(false);
+  }
+  function deleteTierSnap(id) {
+    const next = tierSnapshots.filter(s => s.id !== id);
+    setTierSnapshots(next);
+    localStorage.setItem(TIER_SAVES_KEY, JSON.stringify(next));
+    if (next.length === 0) setShowTierLoad(false);
+  }
 
   /* ── Phase 2 핸들러 */
-  function persistFormula(minC, maxC, k) {
-    localStorage.setItem(FORMULA_KEY, JSON.stringify({ minClicks: minC, maxClicks: maxC, curveK: k }));
+  function persistFormula(minC, maxC, k, maxP) {
+    localStorage.setItem(FORMULA_KEY, JSON.stringify({ minClicks: minC, maxClicks: maxC, curveK: k, formulaMaxPrice: maxP }));
   }
-  function applyFormulaParams(minC, maxC, k) {
-    setMinClicks(minC); setMaxClicks(maxC); setCurveK(k);
-    persistFormula(minC, maxC, k);
+  function applyFormulaParams(minC, maxC, k, maxP) {
+    setMinClicks(minC); setMaxClicks(maxC); setCurveK(k); setFormulaMaxPrice(maxP);
+    persistFormula(minC, maxC, k, maxP);
   }
+  function resetFormula() { applyFormulaParams(100, 5000, 0.5, 3500); }
   function handleFormulaSave() {
-    persistFormula(minClicks, maxClicks, curveK);
+    persistFormula(minClicks, maxClicks, curveK, formulaMaxPrice);
+    const snap = { id: Date.now(), ts: fmtNow(), minClicks, maxClicks, curveK, formulaMaxPrice };
+    const next = [snap, ...formulaSnapshots].slice(0, 5);
+    setFormulaSnapshots(next);
+    localStorage.setItem(FORMULA_SAVES_KEY, JSON.stringify(next));
     setFormulaSaveDone(true);
     setTimeout(() => setFormulaSaveDone(false), 1500);
+  }
+  function handleFormulaLoadSnap(snap) {
+    setMinClicks(snap.minClicks);
+    setMaxClicks(snap.maxClicks);
+    setCurveK(snap.curveK);
+    setFormulaMaxPrice(snap.formulaMaxPrice);
+    setShowFormulaLoad(false);
+  }
+  function deleteFormulaSnap(id) {
+    const next = formulaSnapshots.filter(s => s.id !== id);
+    setFormulaSnapshots(next);
+    localStorage.setItem(FORMULA_SAVES_KEY, JSON.stringify(next));
+    if (next.length === 0) setShowFormulaLoad(false);
   }
 
   /* ── Job 계산 */
@@ -419,9 +493,9 @@ export default function PrintCostSimulator() {
 
   // Phase 2 결과
   const minPrice    = save ? Math.round(save.bepNow) : 0;
-  const fIntPrice   = validInt ? formulaPrice(intClicks, minClicks, maxClicks, curveK, minPrice) : null;
+  const fIntPrice   = validInt ? formulaPrice(intClicks, minClicks, maxClicks, curveK, minPrice, formulaMaxPrice) : null;
   const fIntPrint   = fIntPrice !== null ? intClicks * fIntPrice : null;
-  const fCovPrice   = covClicks > 0 ? formulaPrice(covClicks, minClicks, maxClicks, curveK, minPrice) : null;
+  const fCovPrice   = covClicks > 0 ? formulaPrice(covClicks, minClicks, maxClicks, curveK, minPrice, formulaMaxPrice) : null;
   const fCovPrint   = fCovPrice !== null ? covClicks * fCovPrice : null;
   const fTotal      = fIntPrint !== null
     ? fIntPrint + (intPaperCost ?? 0) + (fCovPrint ?? 0) + (covPaperCost ?? 0) + coating + binding
@@ -491,11 +565,39 @@ export default function PrintCostSimulator() {
                 <section className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
                   <div className="flex items-center justify-between mb-3">
                     <h2 className="text-sm font-semibold text-slate-700">구간별 단가표</h2>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 items-center">
                       <button onClick={resetTiers}
                         className="text-xs text-slate-400 hover:text-slate-600 px-2.5 py-1 border border-slate-200 rounded-lg">
                         기본값 초기화
                       </button>
+                      <div className="relative" ref={tierLoadRef}>
+                        <button
+                          onClick={() => setShowTierLoad(v => !v)}
+                          disabled={tierSnapshots.length === 0}
+                          className={`text-xs px-2.5 py-1 rounded-lg border transition-colors ${
+                            tierSnapshots.length === 0
+                              ? 'text-slate-300 border-slate-200 cursor-not-allowed'
+                              : 'text-slate-500 hover:text-slate-700 border-slate-300'
+                          }`}>
+                          불러오기 {tierSnapshots.length > 0 && `(${tierSnapshots.length})`}
+                        </button>
+                        {showTierLoad && (
+                          <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-slate-200 rounded-xl shadow-lg w-72 overflow-hidden">
+                            <p className="text-xs font-semibold text-slate-400 px-3 pt-2.5 pb-1.5 border-b border-slate-100">저장된 설정</p>
+                            {tierSnapshots.map(snap => (
+                              <div key={snap.id} className="flex items-center justify-between px-3 py-2 hover:bg-indigo-50 cursor-pointer group"
+                                onClick={() => handleTierLoadSnap(snap)}>
+                                <div className="flex flex-col gap-0.5 min-w-0">
+                                  <span className="text-xs font-medium text-slate-700">{snap.ts}</span>
+                                  <span className="text-xs text-slate-400">{fmt(snap.minClicks)}~{fmt(snap.maxClicks)}클릭 · {snap.midCount}구간</span>
+                                </div>
+                                <button onClick={e => { e.stopPropagation(); deleteTierSnap(snap.id); }}
+                                  className="text-slate-300 hover:text-red-400 text-sm ml-2 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">✕</button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                       <button onClick={handleTierSave}
                         className={`text-xs px-3 py-1 rounded-lg border transition-colors ${saveDone ? 'bg-green-50 border-green-300 text-green-600' : 'bg-indigo-600 border-indigo-600 text-white hover:bg-indigo-700'}`}>
                         {saveDone ? '저장됨 ✓' : '단가표 저장'}
@@ -545,23 +647,59 @@ export default function PrintCostSimulator() {
                 <section className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
                   <div className="flex items-center justify-between mb-3">
                     <h2 className="text-sm font-semibold text-slate-700">수식 기반 단가 곡선</h2>
-                    <button onClick={handleFormulaSave}
-                      className={`text-xs px-3 py-1 rounded-lg border transition-colors ${formulaSaveDone ? 'bg-green-50 border-green-300 text-green-600' : 'bg-indigo-600 border-indigo-600 text-white hover:bg-indigo-700'}`}>
-                      {formulaSaveDone ? '저장됨 ✓' : '설정 저장'}
-                    </button>
+                    <div className="flex gap-2 items-center">
+                      <button onClick={resetFormula}
+                        className="text-xs text-slate-400 hover:text-slate-600 px-2.5 py-1 border border-slate-200 rounded-lg">
+                        기본값 초기화
+                      </button>
+                      <div className="relative" ref={formulaLoadRef}>
+                        <button
+                          onClick={() => setShowFormulaLoad(v => !v)}
+                          disabled={formulaSnapshots.length === 0}
+                          className={`text-xs px-2.5 py-1 rounded-lg border transition-colors ${
+                            formulaSnapshots.length === 0
+                              ? 'text-slate-300 border-slate-200 cursor-not-allowed'
+                              : 'text-slate-500 hover:text-slate-700 border-slate-300'
+                          }`}>
+                          불러오기 {formulaSnapshots.length > 0 && `(${formulaSnapshots.length})`}
+                        </button>
+                        {showFormulaLoad && (
+                          <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-slate-200 rounded-xl shadow-lg w-80 overflow-hidden">
+                            <p className="text-xs font-semibold text-slate-400 px-3 pt-2.5 pb-1.5 border-b border-slate-100">저장된 설정</p>
+                            {formulaSnapshots.map(snap => (
+                              <div key={snap.id} className="flex items-center justify-between px-3 py-2 hover:bg-indigo-50 cursor-pointer group"
+                                onClick={() => handleFormulaLoadSnap(snap)}>
+                                <div className="flex flex-col gap-0.5 min-w-0">
+                                  <span className="text-xs font-medium text-slate-700">{snap.ts}</span>
+                                  <span className="text-xs text-slate-400">최고{fmt(snap.formulaMaxPrice)}원 · k={snap.curveK} · {fmt(snap.minClicks)}~{fmt(snap.maxClicks)}클릭</span>
+                                </div>
+                                <button onClick={e => { e.stopPropagation(); deleteFormulaSnap(snap.id); }}
+                                  className="text-slate-300 hover:text-red-400 text-sm ml-2 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">✕</button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <button onClick={handleFormulaSave}
+                        className={`text-xs px-3 py-1 rounded-lg border transition-colors ${formulaSaveDone ? 'bg-green-50 border-green-300 text-green-600' : 'bg-indigo-600 border-indigo-600 text-white hover:bg-indigo-700'}`}>
+                        {formulaSaveDone ? '저장됨 ✓' : '설정 저장'}
+                      </button>
+                    </div>
                   </div>
                   <div className="flex flex-wrap gap-3 mb-3 p-3 bg-slate-50 rounded-xl">
+                    <ParamInput label="최고 단가" value={formulaMaxPrice} unit="원" step={100}
+                      onChange={v => applyFormulaParams(minClicks, maxClicks, curveK, Math.max(minPrice + 1, v))} />
                     <ParamInput label="최소 클릭 수" value={minClicks} unit="클릭"
-                      onChange={v => applyFormulaParams(Math.max(1, v), Math.max(v + 1, maxClicks), curveK)} />
+                      onChange={v => applyFormulaParams(Math.max(1, v), Math.max(v + 1, maxClicks), curveK, formulaMaxPrice)} />
                     <ParamInput label="최대 클릭 수" value={maxClicks} unit="클릭"
-                      onChange={v => applyFormulaParams(minClicks, Math.max(minClicks + 1, v), curveK)} />
+                      onChange={v => applyFormulaParams(minClicks, Math.max(minClicks + 1, v), curveK, formulaMaxPrice)} />
                     <ParamInput label="커브 기울기 k" value={curveK} unit="" step={0.1}
-                      onChange={v => applyFormulaParams(minClicks, maxClicks, Math.max(0.1, Math.round(v * 10) / 10))} />
+                      onChange={v => applyFormulaParams(minClicks, maxClicks, Math.max(0.1, Math.round(v * 10) / 10), formulaMaxPrice)} />
                   </div>
                   <p className="text-xs text-slate-400 mb-3 px-1">
                     k &lt; 1 : 빠르게 하락 &nbsp;·&nbsp; k = 1 : 선형 &nbsp;·&nbsp; k &gt; 1 : 천천히 하락
                   </p>
-                  <FormulaChart minClicks={minClicks} maxClicks={maxClicks} curveK={curveK} bepNow={save.bepNow} />
+                  <FormulaChart minClicks={minClicks} maxClicks={maxClicks} curveK={curveK} bepNow={save.bepNow} formulaMaxPrice={formulaMaxPrice} />
                 </section>
               )}
 
