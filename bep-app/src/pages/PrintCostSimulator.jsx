@@ -8,7 +8,14 @@ const STORAGE_KEY       = 'printTiers_v3';
 const FORMULA_KEY       = 'printFormula_v1';
 const TIER_SAVES_KEY    = 'printTiers_saves';
 const FORMULA_SAVES_KEY = 'printFormula_saves';
+const COATING_KEY       = 'printCoatingTiers';
+const SADDLE_KEY        = 'printSaddleTiers';
+const PERFECT_KEY       = 'printPerfectTiers';
+const RING_KEY          = 'printRingTiers';
+const SCORING_KEY       = 'printScoringTiers';
 const MAX_PRICE         = 3500;
+
+const DEFAULT_SVC_TIERS = () => [{ id: Date.now(), maxCopies: null, cost: 0 }];
 
 function fmtNow() {
   const d = new Date();
@@ -67,6 +74,12 @@ function formulaPrice(x, minC, maxC, k, minPrice, maxPrice) {
   if (x >= maxC) return minPrice;
   const t = (x - minC) / (maxC - minC);
   return Math.round(minPrice + (maxPrice - minPrice) * Math.pow(1 - t, k));
+}
+
+function lookupServiceCost(tiers, copies) {
+  if (!copies || copies <= 0 || !tiers?.length) return 0;
+  const tier = tiers.find(t => t.maxCopies === null || copies <= t.maxCopies);
+  return tier ? tier.cost : 0;
 }
 
 /* ── 구간 step 차트 ──────────────────────────────────────── */
@@ -264,10 +277,19 @@ export default function PrintCostSimulator() {
   const [showFormulaLoad,  setShowFormulaLoad]  = useState(false);
   const formulaLoadRef = useRef(null);
 
+  // 서비스 단가 설정
+  const [coatingTiers,  setCoatingTiers]  = useState(DEFAULT_SVC_TIERS);
+  const [saddleTiers,   setSaddleTiers]   = useState(DEFAULT_SVC_TIERS);
+  const [perfectTiers,  setPerfectTiers]  = useState(DEFAULT_SVC_TIERS);
+  const [ringTiers,     setRingTiers]     = useState(DEFAULT_SVC_TIERS);
+  const [scoringTiers,  setScoringTiers]  = useState(DEFAULT_SVC_TIERS);
+  const [activeModal,   setActiveModal]   = useState(null); // 'coating'|'saddle'|'perfect'|'ring'|'scoring'|null
+
   // Job 계산기 — 공통
   const [jobCopies,     setJobCopies]     = useState('');
   const [coatingCost,   setCoatingCost]   = useState('');
-  const [bindingCost,   setBindingCost]   = useState('');
+  const [bindingMethod, setBindingMethod] = useState('saddle'); // 'saddle'|'perfect'|'ring'
+  const [scoringCost,   setScoringCost]   = useState('');
   // 내지
   const [jobPages,      setJobPages]      = useState('');
   const [intPaperType,  setIntPaperType]  = useState('');
@@ -321,6 +343,22 @@ export default function PrintCostSimulator() {
       if (Array.isArray(t)) setTierSnapshots(t);
       const f = JSON.parse(localStorage.getItem(FORMULA_SAVES_KEY));
       if (Array.isArray(f)) setFormulaSnapshots(f);
+    } catch {}
+  }, []);
+
+  /* localStorage → 서비스 단가 초기화 */
+  useEffect(() => {
+    try {
+      const c = JSON.parse(localStorage.getItem(COATING_KEY));
+      if (Array.isArray(c) && c.length) setCoatingTiers(c);
+      const sd = JSON.parse(localStorage.getItem(SADDLE_KEY));
+      if (Array.isArray(sd) && sd.length) setSaddleTiers(sd);
+      const pf = JSON.parse(localStorage.getItem(PERFECT_KEY));
+      if (Array.isArray(pf) && pf.length) setPerfectTiers(pf);
+      const rg = JSON.parse(localStorage.getItem(RING_KEY));
+      if (Array.isArray(rg) && rg.length) setRingTiers(rg);
+      const s = JSON.parse(localStorage.getItem(SCORING_KEY));
+      if (Array.isArray(s) && s.length) setScoringTiers(s);
     } catch {}
   }, []);
 
@@ -452,6 +490,19 @@ export default function PrintCostSimulator() {
     if (next.length === 0) setShowFormulaLoad(false);
   }
 
+  /* ── 서비스 단가 저장 */
+  function saveServiceTiers(type, rows) {
+    const sorted = [...rows].sort((a, b) =>
+      a.maxCopies === null ? 1 : b.maxCopies === null ? -1 : a.maxCopies - b.maxCopies
+    );
+    if (type === 'coating') { setCoatingTiers(sorted); localStorage.setItem(COATING_KEY,  JSON.stringify(sorted)); }
+    if (type === 'saddle')  { setSaddleTiers(sorted);  localStorage.setItem(SADDLE_KEY,   JSON.stringify(sorted)); }
+    if (type === 'perfect') { setPerfectTiers(sorted); localStorage.setItem(PERFECT_KEY,  JSON.stringify(sorted)); }
+    if (type === 'ring')    { setRingTiers(sorted);    localStorage.setItem(RING_KEY,      JSON.stringify(sorted)); }
+    if (type === 'scoring') { setScoringTiers(sorted); localStorage.setItem(SCORING_KEY,  JSON.stringify(sorted)); }
+    setActiveModal(null);
+  }
+
   /* ── Job 계산 */
   const intPages  = parseInt(jobPages, 10);
   const copies    = parseInt(jobCopies, 10);
@@ -473,8 +524,11 @@ export default function PrintCostSimulator() {
   const covPaperCost     = selectedCovPaper && validCopies ? copies * selectedCovPaper.price : null;
 
   // 추가비용
-  const coating = parseInt(coatingCost, 10) || 0;
-  const binding = parseInt(bindingCost,  10) || 0;
+  const coatingCalc = validCopies ? lookupServiceCost(coatingTiers, copies) : 0;
+  const scoringCalc = validCopies ? lookupServiceCost(scoringTiers, copies) : 0;
+  const coating = coatingCalc > 0 ? coatingCalc : (parseInt(coatingCost, 10) || 0);
+  const binding = 0; // TODO: bindingMethod별 tier 계산 로직 연결
+  const scoring = scoringCalc > 0 ? scoringCalc : (parseInt(scoringCost, 10) || 0);
 
   // Phase 1 결과
   const intMatchedIdx  = validInt && tiers
@@ -488,7 +542,7 @@ export default function PrintCostSimulator() {
   const covPrintCost   = covMatchedTier ? covClicks * covMatchedTier.price : null;
 
   const tierTotal = intPrintCost !== null
-    ? intPrintCost + (intPaperCost ?? 0) + (covPrintCost ?? 0) + (covPaperCost ?? 0) + coating + binding
+    ? intPrintCost + (intPaperCost ?? 0) + (covPrintCost ?? 0) + (covPaperCost ?? 0) + coating + binding + scoring
     : null;
 
   // Phase 2 결과
@@ -498,7 +552,7 @@ export default function PrintCostSimulator() {
   const fCovPrice   = covClicks > 0 ? formulaPrice(covClicks, minClicks, maxClicks, curveK, minPrice, formulaMaxPrice) : null;
   const fCovPrint   = fCovPrice !== null ? covClicks * fCovPrice : null;
   const fTotal      = fIntPrint !== null
-    ? fIntPrint + (intPaperCost ?? 0) + (fCovPrint ?? 0) + (covPaperCost ?? 0) + coating + binding
+    ? fIntPrint + (intPaperCost ?? 0) + (fCovPrint ?? 0) + (covPaperCost ?? 0) + coating + binding + scoring
     : null;
 
   return (
@@ -610,7 +664,7 @@ export default function PrintCostSimulator() {
                     <ParamInput label="최대 클릭 수" value={maxClicks} unit="클릭"
                       onChange={v => applyTierParams(minClicks, Math.max(minClicks + 1, v), midCount)} />
                     <ParamInput label="중간 구간 수" value={midCount} unit="개" step={1}
-                      onChange={v => applyTierParams(minClicks, maxClicks, Math.max(0, Math.min(20, v)))} />
+                      onChange={v => applyTierParams(minClicks, maxClicks, Math.max(0, Math.min(50, v)))} />
                   </div>
                   <TierChart tiers={tiers} bepNow={save.bepNow} />
                   <table className="w-full text-xs mt-3">
@@ -706,7 +760,28 @@ export default function PrintCostSimulator() {
             </div>{/* END 왼쪽 */}
 
             {/* ── 오른쪽: Job 인쇄비 계산 */}
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 flex flex-col gap-3">
+
+              {/* 서비스 단가 설정 */}
+              <section className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                <h2 className="text-sm font-semibold text-slate-700 mb-3">서비스 단가 설정</h2>
+                <div className="flex flex-col gap-2">
+                  {[
+                    { key: 'coating', label: '코팅비 계산',      tiers: coatingTiers },
+                    { key: 'saddle',  label: '중철비 계산',       tiers: saddleTiers  },
+                    { key: 'perfect', label: '무선철비 계산',     tiers: perfectTiers },
+                    { key: 'ring',    label: '링제본비 계산',     tiers: ringTiers    },
+                    { key: 'scoring', label: '접음선(오시)비 계산', tiers: scoringTiers },
+                  ].map(({ key, label, tiers: svcTiers }) => (
+                    <button key={key} onClick={() => setActiveModal(key)}
+                      className="flex items-center justify-between px-3 py-2.5 bg-slate-50 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-300 rounded-xl text-sm transition-colors">
+                      <span className="font-medium text-slate-700">{label}</span>
+                      <span className="text-xs text-slate-400">{svcTiers.length}구간 설정됨 →</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+
               <section className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
                 <h2 className="text-sm font-semibold text-slate-700 mb-3">Job 인쇄비 계산</h2>
                 <div className="flex flex-col gap-3">
@@ -714,10 +789,61 @@ export default function PrintCostSimulator() {
                   {/* 공통 */}
                   <div className="p-3 bg-slate-50 rounded-xl">
                     <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">공통</p>
-                    <div className="flex flex-wrap gap-3">
-                      <JobInput label="부수" value={jobCopies} unit="부" onChange={setJobCopies} />
-                      <JobInput label="코팅비" value={coatingCost} unit="원" onChange={setCoatingCost} />
-                      <JobInput label="제본비" value={bindingCost} unit="원" onChange={setBindingCost} />
+                    <div className="flex flex-col gap-3">
+                      {/* 1행: 부수 · 제본비 · 제본방식 */}
+                      <div className="flex gap-3 items-end">
+                        <JobInput label="부수" value={jobCopies} unit="부" onChange={setJobCopies} />
+                        <div className="flex flex-col gap-1">
+                          <label className="text-xs font-medium text-slate-500">제본비 <span className="text-indigo-400 font-normal">(자동)</span></label>
+                          <div className="relative w-32">
+                            <span className="block px-3 py-2 pr-8 bg-indigo-50 border border-indigo-200 rounded-xl text-sm font-medium text-indigo-700">{fmt(binding)}</span>
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-indigo-400">원</span>
+                          </div>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className="text-xs font-medium text-slate-500">제본 방식</label>
+                          <div className="flex gap-3 py-1.5">
+                            {[
+                              { value: 'saddle',  label: '중철'   },
+                              { value: 'perfect', label: '무선철' },
+                              { value: 'ring',    label: '링제본' },
+                            ].map(opt => (
+                              <label key={opt.value} className="flex items-center gap-1.5 cursor-pointer text-sm text-slate-700">
+                                <input type="radio" name="bindingMethod" value={opt.value}
+                                  checked={bindingMethod === opt.value}
+                                  onChange={() => setBindingMethod(opt.value)}
+                                  className="accent-indigo-600" />
+                                {opt.label}
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                      {/* 2행: 코팅비 · 접음선 */}
+                      <div className="flex gap-3 items-end">
+                        {coatingCalc > 0 ? (
+                          <div className="flex flex-col gap-1">
+                            <label className="text-xs font-medium text-slate-500">코팅비 <span className="text-indigo-400 font-normal">(자동)</span></label>
+                            <div className="relative w-32">
+                              <span className="block px-3 py-2 pr-8 bg-indigo-50 border border-indigo-200 rounded-xl text-sm font-medium text-indigo-700">{fmt(coatingCalc)}</span>
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-indigo-400">원</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <JobInput label="코팅비" value={coatingCost} unit="원" onChange={setCoatingCost} />
+                        )}
+                        {scoringCalc > 0 ? (
+                          <div className="flex flex-col gap-1">
+                            <label className="text-xs font-medium text-slate-500">접음선 <span className="text-indigo-400 font-normal">(자동)</span></label>
+                            <div className="relative w-32">
+                              <span className="block px-3 py-2 pr-8 bg-indigo-50 border border-indigo-200 rounded-xl text-sm font-medium text-indigo-700">{fmt(scoringCalc)}</span>
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-indigo-400">원</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <JobInput label="접음선" value={scoringCost} unit="원" onChange={setScoringCost} />
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -763,19 +889,42 @@ export default function PrintCostSimulator() {
                     intPrint={intPrintCost} intPaper={intPaperCost}
                     covClicks={covClicks} covUnitPrice={covMatchedTier?.price}
                     covPrint={covPrintCost} covPaper={covPaperCost}
-                    coating={coating} binding={binding} total={tierTotal} />}
+                    coating={coating} binding={binding} scoring={scoring} total={tierTotal} />}
                   {phase === 'formula' && fIntPrint !== null && <CostResult
                     intClicks={intClicks} intUnitPrice={fIntPrice}
                     intPrint={fIntPrint} intPaper={intPaperCost}
                     covClicks={covClicks} covUnitPrice={fCovPrice}
                     covPrint={fCovPrint} covPaper={covPaperCost}
-                    coating={coating} binding={binding} total={fTotal} />}
+                    coating={coating} binding={binding} scoring={scoring} total={fTotal} />}
 
                 </div>
               </section>
+
             </div>{/* END 오른쪽 */}
 
           </div>{/* END 2열 본문 */}
+
+          {/* 서비스 단가 설정 모달 */}
+          {activeModal && (
+            <ServiceTierModal
+              title={
+                activeModal === 'coating' ? '코팅비 구간 설정' :
+                activeModal === 'saddle'  ? '중철비 구간 설정' :
+                activeModal === 'perfect' ? '무선철비 구간 설정' :
+                activeModal === 'ring'    ? '링제본비 구간 설정' :
+                '접음선(오시)비 구간 설정'
+              }
+              tiers={
+                activeModal === 'coating' ? coatingTiers :
+                activeModal === 'saddle'  ? saddleTiers  :
+                activeModal === 'perfect' ? perfectTiers :
+                activeModal === 'ring'    ? ringTiers    :
+                scoringTiers
+              }
+              onSave={rows => saveServiceTiers(activeModal, rows)}
+              onClose={() => setActiveModal(null)}
+            />
+          )}
 
         </div>
       )}
@@ -858,7 +1007,7 @@ function WeightSelect({ label, value, weights, disabled, onChange }) {
   );
 }
 
-function CostResult({ intClicks, intUnitPrice, intPrint, intPaper, covClicks, covUnitPrice, covPrint, covPaper, coating, binding, total }) {
+function CostResult({ intClicks, intUnitPrice, intPrint, intPaper, covClicks, covUnitPrice, covPrint, covPaper, coating, binding, scoring, total }) {
   return (
     <div className="bg-slate-50 rounded-xl p-4 text-sm space-y-3">
       {/* 내지 */}
@@ -885,12 +1034,13 @@ function CostResult({ intClicks, intUnitPrice, intPrint, intPaper, covClicks, co
       )}
 
       {/* 기타 */}
-      {(coating > 0 || binding > 0) && (
+      {(coating > 0 || binding > 0 || scoring > 0) && (
         <>
           <div className="border-t border-slate-200" />
           <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
             {coating > 0 && <Row label="코팅비" value={`${fmt(coating)}원`} />}
             {binding > 0 && <Row label="제본비" value={`${fmt(binding)}원`} />}
+            {scoring > 0 && <Row label="접음선" value={`${fmt(scoring)}원`} />}
           </div>
         </>
       )}
@@ -898,6 +1048,97 @@ function CostResult({ intClicks, intUnitPrice, intPrint, intPaper, covClicks, co
       {/* 합계 */}
       <div className="border-t-2 border-slate-300 pt-2 grid grid-cols-2 gap-x-6">
         <Row label="총 인쇄비" value={`${fmt(total)}원`} bold />
+      </div>
+    </div>
+  );
+}
+
+function ServiceTierModal({ title, tiers, onSave, onClose }) {
+  const [rows, setRows] = useState(() =>
+    tiers.length > 0 ? tiers.map(r => ({ ...r })) : [{ id: Date.now(), maxCopies: null, cost: 0 }]
+  );
+
+  function addRow() {
+    const lastFinite = [...rows].reverse().find(r => r.maxCopies !== null);
+    const newMax = lastFinite ? lastFinite.maxCopies * 2 : 100;
+    const nullIdx = rows.findIndex(r => r.maxCopies === null);
+    const newRow = { id: Date.now(), maxCopies: newMax, cost: 0 };
+    if (nullIdx >= 0) {
+      const next = [...rows];
+      next.splice(nullIdx, 0, newRow);
+      setRows(next);
+    } else {
+      setRows([...rows, newRow]);
+    }
+  }
+
+  function removeRow(id) {
+    const next = rows.filter(r => r.id !== id);
+    if (next.length === 0) return;
+    setRows(next);
+  }
+
+  function updateRow(id, field, val) {
+    setRows(rows.map(r => r.id === id ? { ...r, [field]: val } : r));
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-[420px] max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <h2 className="text-sm font-semibold text-slate-800">{title}</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-lg leading-none">✕</button>
+        </div>
+        <div className="overflow-y-auto flex-1 px-5 py-4">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs text-slate-400 border-b border-slate-100">
+                <th className="text-left pb-2 font-medium">부수 이하</th>
+                <th className="text-right pb-2 font-medium">금액 (원)</th>
+                <th className="w-8"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(row => (
+                <tr key={row.id} className="border-b border-slate-50">
+                  <td className="py-2 pr-3">
+                    {row.maxCopies === null
+                      ? <span className="text-slate-400 italic text-xs pl-1">그 이상</span>
+                      : <input type="number" min={1} value={row.maxCopies}
+                          onChange={e => updateRow(row.id, 'maxCopies', Number(e.target.value) || 1)}
+                          className="w-24 border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                    }
+                  </td>
+                  <td className="py-2 text-right">
+                    <input type="number" min={0} value={row.cost}
+                      onChange={e => updateRow(row.id, 'cost', Number(e.target.value) || 0)}
+                      className="w-32 border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-right text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                  </td>
+                  <td className="py-2 pl-2 text-center">
+                    {row.maxCopies !== null && (
+                      <button onClick={() => removeRow(row.id)}
+                        className="text-slate-300 hover:text-red-400 text-sm">✕</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <button onClick={addRow}
+            className="mt-3 text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium">
+            + 구간 추가
+          </button>
+        </div>
+        <div className="flex gap-2 justify-end px-5 py-3 border-t border-slate-100">
+          <button onClick={onClose}
+            className="text-xs px-3 py-1.5 border border-slate-200 rounded-lg text-slate-500 hover:text-slate-700">
+            취소
+          </button>
+          <button onClick={() => onSave(rows)}
+            className="text-xs px-4 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
+            저장
+          </button>
+        </div>
       </div>
     </div>
   );
