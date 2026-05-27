@@ -801,13 +801,17 @@ export default function PrintCostSimulator() {
                     { key: 'perfect', label: '무선철비 계산',     tiers: perfectTiers },
                     { key: 'ring',    label: '링제본비 계산',     tiers: ringTiers    },
                     { key: 'scoring', label: '접음선(오시)비 계산', tiers: scoringTiers },
-                  ].map(({ key, label, tiers: svcTiers }) => (
-                    <button key={key} onClick={() => setActiveModal(key)}
-                      className="flex items-center justify-between px-3 py-2.5 bg-slate-50 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-300 rounded-xl text-sm transition-colors">
-                      <span className="font-medium text-slate-700">{label}</span>
-                      <span className="text-xs text-slate-400">{svcTiers.length}구간 설정됨 →</span>
-                    </button>
-                  ))}
+                  ].map(({ key, label, tiers: svcTiers }) => {
+                    const fixedRule = key === 'saddle' || key === 'perfect' || key === 'ring';
+                    const hint = fixedRule ? '계산 기준 보기 →' : `${svcTiers.length}구간 설정됨 →`;
+                    return (
+                      <button key={key} onClick={() => setActiveModal(key)}
+                        className="flex items-center justify-between px-3 py-2.5 bg-slate-50 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-300 rounded-xl text-sm transition-colors">
+                        <span className="font-medium text-slate-700">{label}</span>
+                        <span className="text-xs text-slate-400">{hint}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </section>
 
@@ -820,7 +824,7 @@ export default function PrintCostSimulator() {
                     <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">공통</p>
                     <div className="flex flex-col gap-3">
                       {/* 1행: 부수 · 제본비 · 제본방식 */}
-                      <div className="flex gap-3 items-end">
+                      <div className="flex flex-wrap gap-3 items-end">
                         <JobInput label="부수" value={jobCopies} unit="부" onChange={setJobCopies} />
                         <div className="flex flex-col gap-1">
                           <label className="text-xs font-medium text-slate-500">제본비 <span className="text-indigo-400 font-normal">(자동)</span></label>
@@ -1093,7 +1097,7 @@ function BindingInfoModal({ type, onClose }) {
   const titles = { saddle: '중철비 계산 기준', perfect: '무선철비 계산 기준', ring: '링제본비 계산 기준' };
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-[420px] flex flex-col" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl shadow-xl w-[calc(100vw-2rem)] max-w-[420px] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
           <h2 className="text-sm font-semibold text-slate-800">{titles[type]}</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-lg leading-none">✕</button>
@@ -1230,7 +1234,7 @@ function ServiceTierModal({ title, tiers, onSave, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-[420px] max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl shadow-xl w-[calc(100vw-2rem)] max-w-[420px] max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
           <h2 className="text-sm font-semibold text-slate-800">{title}</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-lg leading-none">✕</button>
