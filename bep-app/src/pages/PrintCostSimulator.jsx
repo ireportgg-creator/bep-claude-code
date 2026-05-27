@@ -82,6 +82,19 @@ function lookupServiceCost(tiers, copies) {
   return tier ? tier.cost : 0;
 }
 
+function calcSaddleBinding(copies) {
+  if (!copies || copies <= 0) return 0;
+  if (copies <= 7) return copies * 5000;
+  if (copies <= 1000) return 40000;
+  return 0;
+}
+
+function calcPerfectBinding(copies, intClicks) {
+  if (!copies || copies <= 0) return 0;
+  if (copies <= 3) return copies * 5000;
+  return Math.ceil(Math.min(intClicks || 0, 75000) / 4000) * 20000;
+}
+
 /* ── 구간 step 차트 ──────────────────────────────────────── */
 
 function TierChart({ tiers, bepNow }) {
@@ -284,6 +297,8 @@ export default function PrintCostSimulator() {
   const [ringTiers,     setRingTiers]     = useState(DEFAULT_SVC_TIERS);
   const [scoringTiers,  setScoringTiers]  = useState(DEFAULT_SVC_TIERS);
   const [activeModal,   setActiveModal]   = useState(null); // 'coating'|'saddle'|'perfect'|'ring'|'scoring'|null
+  const [coatingEnabled, setCoatingEnabled] = useState(false);
+  const [scoringEnabled,  setScoringEnabled]  = useState(false);
 
   // Job 계산기 — 공통
   const [jobCopies,     setJobCopies]     = useState('');
@@ -526,9 +541,15 @@ export default function PrintCostSimulator() {
   // 추가비용
   const coatingCalc = validCopies ? lookupServiceCost(coatingTiers, copies) : 0;
   const scoringCalc = validCopies ? lookupServiceCost(scoringTiers, copies) : 0;
-  const coating = coatingCalc > 0 ? coatingCalc : (parseInt(coatingCost, 10) || 0);
-  const binding = 0; // TODO: bindingMethod별 tier 계산 로직 연결
-  const scoring = scoringCalc > 0 ? scoringCalc : (parseInt(scoringCost, 10) || 0);
+  const coating = coatingEnabled ? (coatingCalc > 0 ? coatingCalc : (parseInt(coatingCost, 10) || 0)) : 0;
+  const binding = validCopies
+    ? (bindingMethod === 'saddle'
+        ? calcSaddleBinding(copies)
+        : bindingMethod === 'perfect'
+          ? calcPerfectBinding(copies, intClicks)
+          : lookupServiceCost(ringTiers, copies))
+    : 0;
+  const scoring = scoringEnabled ? (scoringCalc > 0 ? scoringCalc : (parseInt(scoringCost, 10) || 0)) : 0;
 
   // Phase 1 결과
   const intMatchedIdx  = validInt && tiers
@@ -820,29 +841,47 @@ export default function PrintCostSimulator() {
                         </div>
                       </div>
                       {/* 2행: 코팅비 · 접음선 */}
-                      <div className="flex gap-3 items-end">
-                        {coatingCalc > 0 ? (
-                          <div className="flex flex-col gap-1">
-                            <label className="text-xs font-medium text-slate-500">코팅비 <span className="text-indigo-400 font-normal">(자동)</span></label>
+                      <div className="flex gap-3 items-start">
+                        {/* 코팅비 */}
+                        <div className="flex flex-col gap-1">
+                          <label className="flex items-center gap-1.5 text-xs font-medium text-slate-500 cursor-pointer select-none">
+                            <input type="checkbox" checked={coatingEnabled} onChange={e => setCoatingEnabled(e.target.checked)} className="accent-indigo-600" />
+                            코팅비
+                            {coatingEnabled && coatingCalc > 0 && <span className="text-indigo-400 font-normal">(자동)</span>}
+                          </label>
+                          {coatingEnabled && (coatingCalc > 0 ? (
                             <div className="relative w-32">
                               <span className="block px-3 py-2 pr-8 bg-indigo-50 border border-indigo-200 rounded-xl text-sm font-medium text-indigo-700">{fmt(coatingCalc)}</span>
                               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-indigo-400">원</span>
                             </div>
-                          </div>
-                        ) : (
-                          <JobInput label="코팅비" value={coatingCost} unit="원" onChange={setCoatingCost} />
-                        )}
-                        {scoringCalc > 0 ? (
-                          <div className="flex flex-col gap-1">
-                            <label className="text-xs font-medium text-slate-500">접음선 <span className="text-indigo-400 font-normal">(자동)</span></label>
+                          ) : (
+                            <div className="relative">
+                              <input type="number" min={0} placeholder="0" value={coatingCost} onChange={e => setCoatingCost(e.target.value)}
+                                className="w-32 border border-slate-200 rounded-xl px-3 py-2 pr-8 text-sm font-medium bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 text-slate-700 transition" />
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">원</span>
+                            </div>
+                          ))}
+                        </div>
+                        {/* 접음선 */}
+                        <div className="flex flex-col gap-1">
+                          <label className="flex items-center gap-1.5 text-xs font-medium text-slate-500 cursor-pointer select-none">
+                            <input type="checkbox" checked={scoringEnabled} onChange={e => setScoringEnabled(e.target.checked)} className="accent-indigo-600" />
+                            접음선
+                            {scoringEnabled && scoringCalc > 0 && <span className="text-indigo-400 font-normal">(자동)</span>}
+                          </label>
+                          {scoringEnabled && (scoringCalc > 0 ? (
                             <div className="relative w-32">
                               <span className="block px-3 py-2 pr-8 bg-indigo-50 border border-indigo-200 rounded-xl text-sm font-medium text-indigo-700">{fmt(scoringCalc)}</span>
                               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-indigo-400">원</span>
                             </div>
-                          </div>
-                        ) : (
-                          <JobInput label="접음선" value={scoringCost} unit="원" onChange={setScoringCost} />
-                        )}
+                          ) : (
+                            <div className="relative">
+                              <input type="number" min={0} placeholder="0" value={scoringCost} onChange={e => setScoringCost(e.target.value)}
+                                className="w-32 border border-slate-200 rounded-xl px-3 py-2 pr-8 text-sm font-medium bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 text-slate-700 transition" />
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">원</span>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -905,25 +944,22 @@ export default function PrintCostSimulator() {
           </div>{/* END 2열 본문 */}
 
           {/* 서비스 단가 설정 모달 */}
-          {activeModal && (
-            <ServiceTierModal
-              title={
-                activeModal === 'coating' ? '코팅비 구간 설정' :
-                activeModal === 'saddle'  ? '중철비 구간 설정' :
-                activeModal === 'perfect' ? '무선철비 구간 설정' :
-                activeModal === 'ring'    ? '링제본비 구간 설정' :
-                '접음선(오시)비 구간 설정'
-              }
-              tiers={
-                activeModal === 'coating' ? coatingTiers :
-                activeModal === 'saddle'  ? saddleTiers  :
-                activeModal === 'perfect' ? perfectTiers :
-                activeModal === 'ring'    ? ringTiers    :
-                scoringTiers
-              }
-              onSave={rows => saveServiceTiers(activeModal, rows)}
-              onClose={() => setActiveModal(null)}
-            />
+          {activeModal && (activeModal === 'saddle' || activeModal === 'perfect'
+            ? <BindingInfoModal type={activeModal} onClose={() => setActiveModal(null)} />
+            : <ServiceTierModal
+                title={
+                  activeModal === 'coating' ? '코팅비 구간 설정' :
+                  activeModal === 'ring'    ? '링제본비 구간 설정' :
+                  '접음선(오시)비 구간 설정'
+                }
+                tiers={
+                  activeModal === 'coating' ? coatingTiers :
+                  activeModal === 'ring'    ? ringTiers    :
+                  scoringTiers
+                }
+                onSave={rows => saveServiceTiers(activeModal, rows)}
+                onClose={() => setActiveModal(null)}
+              />
           )}
 
         </div>
@@ -1048,6 +1084,81 @@ function CostResult({ intClicks, intUnitPrice, intPrint, intPaper, covClicks, co
       {/* 합계 */}
       <div className="border-t-2 border-slate-300 pt-2 grid grid-cols-2 gap-x-6">
         <Row label="총 인쇄비" value={`${fmt(total)}원`} bold />
+      </div>
+    </div>
+  );
+}
+
+function BindingInfoModal({ type, onClose }) {
+  const isSaddle = type === 'saddle';
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-[420px] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <h2 className="text-sm font-semibold text-slate-800">{isSaddle ? '중철비 계산 기준' : '무선철비 계산 기준'}</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-lg leading-none">✕</button>
+        </div>
+        <div className="px-5 py-5 space-y-3 text-sm text-slate-700">
+          {isSaddle ? (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-slate-400 border-b border-slate-100">
+                  <th className="text-left pb-2 font-medium">부수 범위</th>
+                  <th className="text-right pb-2 font-medium">금액</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-slate-50">
+                  <td className="py-2.5">1 ~ 7권</td>
+                  <td className="py-2.5 text-right">권당 5,000원</td>
+                </tr>
+                <tr>
+                  <td className="py-2.5">8 ~ 1,000권</td>
+                  <td className="py-2.5 text-right">40,000원 (정액)</td>
+                </tr>
+              </tbody>
+            </table>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-slate-400 border-b border-slate-100">
+                  <th className="text-left pb-2 font-medium">조건</th>
+                  <th className="text-right pb-2 font-medium">금액</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-slate-50">
+                  <td className="py-2.5">1 ~ 3권</td>
+                  <td className="py-2.5 text-right">권당 5,000원</td>
+                </tr>
+                <tr className="border-b border-slate-50">
+                  <td className="py-2.5 text-slate-500 text-xs" colSpan={2}>
+                    4권 이상 — 내지 클릭 수 4,000구간마다 20,000원씩 증가
+                  </td>
+                </tr>
+                {[
+                  ['1 ~ 4,000클릭',      '20,000원'],
+                  ['4,001 ~ 8,000클릭',  '40,000원'],
+                  ['8,001 ~ 12,000클릭', '60,000원'],
+                  ['12,001 ~ 16,000클릭','80,000원'],
+                  ['…4,000클릭 구간마다', '20,000원씩 증가'],
+                  ['75,001클릭 이상',    '380,000원 (상한)'],
+                ].map(([range, amount], i, arr) => (
+                  <tr key={range} className={i < arr.length - 1 ? 'border-b border-slate-50' : ''}>
+                    <td className="py-2 text-slate-500">{range}</td>
+                    <td className="py-2 text-right">{amount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <div className="flex justify-end px-5 py-3 border-t border-slate-100">
+          <button onClick={onClose}
+            className="text-xs px-4 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
+            확인
+          </button>
+        </div>
       </div>
     </div>
   );
