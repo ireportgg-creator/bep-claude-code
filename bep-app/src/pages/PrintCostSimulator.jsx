@@ -95,6 +95,14 @@ function calcPerfectBinding(copies, intClicks) {
   return Math.ceil(Math.min(intClicks || 0, 75000) / 4000) * 20000;
 }
 
+function calcRingBinding(copies, intPages) {
+  if (!copies || copies <= 0) return 0;
+  const over160  = !isNaN(intPages) && intPages > 160;
+  const unitPrice = over160 ? 500 : 450;
+  const minCost   = over160 ? 50000 : 45000;
+  return Math.max(copies * unitPrice, minCost);
+}
+
 /* ── 구간 step 차트 ──────────────────────────────────────── */
 
 function TierChart({ tiers, bepNow }) {
@@ -547,7 +555,7 @@ export default function PrintCostSimulator() {
         ? calcSaddleBinding(copies)
         : bindingMethod === 'perfect'
           ? calcPerfectBinding(copies, intClicks)
-          : lookupServiceCost(ringTiers, copies))
+          : calcRingBinding(copies, intPages))
     : 0;
   const scoring = scoringEnabled ? (scoringCalc > 0 ? scoringCalc : (parseInt(scoringCost, 10) || 0)) : 0;
 
@@ -622,7 +630,7 @@ export default function PrintCostSimulator() {
           <div className="flex flex-col xl:flex-row gap-4 items-start">
 
             {/* ── 왼쪽: 탭 + 단가 설정 */}
-            <div className="xl:w-[460px] shrink-0 flex flex-col gap-3">
+            <div className="w-full xl:w-[460px] shrink-0 flex flex-col gap-3">
 
               <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
                 <button onClick={() => setPhase('tier')}
@@ -781,11 +789,11 @@ export default function PrintCostSimulator() {
             </div>{/* END 왼쪽 */}
 
             {/* ── 오른쪽: Job 인쇄비 계산 */}
-            <div className="flex-1 min-w-0 flex flex-col gap-3">
+            <div className="w-full flex-1 min-w-0 flex flex-col gap-3">
 
               {/* 서비스 단가 설정 */}
-              <section className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                <h2 className="text-sm font-semibold text-slate-700 mb-3">서비스 단가 설정</h2>
+              <section className="bg-amber-50 border border-amber-200 rounded-xl p-4 shadow-sm">
+                <h2 className="text-sm font-semibold text-amber-800 mb-3">서비스 단가 설정</h2>
                 <div className="flex flex-col gap-2">
                   {[
                     { key: 'coating', label: '코팅비 계산',      tiers: coatingTiers },
@@ -803,8 +811,8 @@ export default function PrintCostSimulator() {
                 </div>
               </section>
 
-              <section className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                <h2 className="text-sm font-semibold text-slate-700 mb-3">Job 인쇄비 계산</h2>
+              <section className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 shadow-sm">
+                <h2 className="text-sm font-semibold text-indigo-800 mb-3">Job 인쇄비 계산</h2>
                 <div className="flex flex-col gap-3">
 
                   {/* 공통 */}
@@ -944,19 +952,11 @@ export default function PrintCostSimulator() {
           </div>{/* END 2열 본문 */}
 
           {/* 서비스 단가 설정 모달 */}
-          {activeModal && (activeModal === 'saddle' || activeModal === 'perfect'
+          {activeModal && (activeModal === 'saddle' || activeModal === 'perfect' || activeModal === 'ring'
             ? <BindingInfoModal type={activeModal} onClose={() => setActiveModal(null)} />
             : <ServiceTierModal
-                title={
-                  activeModal === 'coating' ? '코팅비 구간 설정' :
-                  activeModal === 'ring'    ? '링제본비 구간 설정' :
-                  '접음선(오시)비 구간 설정'
-                }
-                tiers={
-                  activeModal === 'coating' ? coatingTiers :
-                  activeModal === 'ring'    ? ringTiers    :
-                  scoringTiers
-                }
+                title={activeModal === 'coating' ? '코팅비 구간 설정' : '접음선(오시)비 구간 설정'}
+                tiers={activeModal === 'coating' ? coatingTiers : scoringTiers}
                 onSave={rows => saveServiceTiers(activeModal, rows)}
                 onClose={() => setActiveModal(null)}
               />
@@ -1090,16 +1090,16 @@ function CostResult({ intClicks, intUnitPrice, intPrint, intPaper, covClicks, co
 }
 
 function BindingInfoModal({ type, onClose }) {
-  const isSaddle = type === 'saddle';
+  const titles = { saddle: '중철비 계산 기준', perfect: '무선철비 계산 기준', ring: '링제본비 계산 기준' };
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl w-[420px] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-          <h2 className="text-sm font-semibold text-slate-800">{isSaddle ? '중철비 계산 기준' : '무선철비 계산 기준'}</h2>
+          <h2 className="text-sm font-semibold text-slate-800">{titles[type]}</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-lg leading-none">✕</button>
         </div>
-        <div className="px-5 py-5 space-y-3 text-sm text-slate-700">
-          {isSaddle ? (
+        <div className="px-5 py-5 text-sm text-slate-700">
+          {type === 'saddle' && (
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-xs text-slate-400 border-b border-slate-100">
@@ -1118,7 +1118,8 @@ function BindingInfoModal({ type, onClose }) {
                 </tr>
               </tbody>
             </table>
-          ) : (
+          )}
+          {type === 'perfect' && (
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-xs text-slate-400 border-b border-slate-100">
@@ -1137,18 +1138,52 @@ function BindingInfoModal({ type, onClose }) {
                   </td>
                 </tr>
                 {[
-                  ['1 ~ 4,000클릭',      '20,000원'],
-                  ['4,001 ~ 8,000클릭',  '40,000원'],
-                  ['8,001 ~ 12,000클릭', '60,000원'],
-                  ['12,001 ~ 16,000클릭','80,000원'],
-                  ['…4,000클릭 구간마다', '20,000원씩 증가'],
-                  ['75,001클릭 이상',    '380,000원 (상한)'],
+                  ['1 ~ 4,000클릭',       '20,000원'],
+                  ['4,001 ~ 8,000클릭',   '40,000원'],
+                  ['8,001 ~ 12,000클릭',  '60,000원'],
+                  ['12,001 ~ 16,000클릭', '80,000원'],
+                  ['…4,000클릭 구간마다',  '20,000원씩 증가'],
+                  ['75,001클릭 이상',      '380,000원 (상한)'],
                 ].map(([range, amount], i, arr) => (
                   <tr key={range} className={i < arr.length - 1 ? 'border-b border-slate-50' : ''}>
                     <td className="py-2 text-slate-500">{range}</td>
                     <td className="py-2 text-right">{amount}</td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          )}
+          {type === 'ring' && (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-slate-400 border-b border-slate-100">
+                  <th className="text-left pb-2 font-medium">조건</th>
+                  <th className="text-right pb-2 font-medium">금액</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-slate-50">
+                  <td className="py-2.5 text-slate-500 text-xs" colSpan={2}>내지 160p 이하</td>
+                </tr>
+                <tr className="border-b border-slate-50">
+                  <td className="py-2.5 pl-3">1 ~ 100권</td>
+                  <td className="py-2.5 text-right">45,000원 (기본)</td>
+                </tr>
+                <tr className="border-b border-slate-100">
+                  <td className="py-2.5 pl-3">101권 이상</td>
+                  <td className="py-2.5 text-right">권수 × 450원</td>
+                </tr>
+                <tr className="border-b border-slate-50">
+                  <td className="py-2.5 text-slate-500 text-xs" colSpan={2}>내지 161p 이상</td>
+                </tr>
+                <tr className="border-b border-slate-50">
+                  <td className="py-2.5 pl-3">1 ~ 100권</td>
+                  <td className="py-2.5 text-right">50,000원 (기본)</td>
+                </tr>
+                <tr>
+                  <td className="py-2.5 pl-3">101권 이상</td>
+                  <td className="py-2.5 text-right">권수 × 500원</td>
+                </tr>
               </tbody>
             </table>
           )}
