@@ -308,6 +308,7 @@ export default function PrintCostSimulator() {
   const [coatingEnabled, setCoatingEnabled] = useState(false);
   const [scoringEnabled,  setScoringEnabled]  = useState(false);
 
+
   // Job 계산기 — 공통
   const [jobCopies,     setJobCopies]     = useState('');
   const [coatingCost,   setCoatingCost]   = useState('');
@@ -384,6 +385,7 @@ export default function PrintCostSimulator() {
       if (Array.isArray(s) && s.length) setScoringTiers(s);
     } catch {}
   }, []);
+
 
   /* 드롭다운 click-outside 닫기 */
   useEffect(() => {
@@ -513,6 +515,76 @@ export default function PrintCostSimulator() {
     if (next.length === 0) setShowFormulaLoad(false);
   }
 
+  /* ── 통합 프리셋 */
+  async function handlePresetSave() {
+    const preset = {
+      phase, minClicks, maxClicks, midCount, tiers,
+      curveK, formulaMaxPrice,
+      coatingTiers, saddleTiers, perfectTiers, ringTiers, scoringTiers,
+    };
+    if ('showSaveFilePicker' in window) {
+      try {
+        const fileHandle = await window.showSaveFilePicker({
+          suggestedName: '인쇄비_단가설정.json',
+          types: [{ description: 'JSON 파일', accept: { 'application/json': ['.json'] } }],
+        });
+        const writable = await fileHandle.createWritable();
+        await writable.write(JSON.stringify(preset, null, 2));
+        await writable.close();
+      } catch {}
+    } else {
+      const blob = new Blob([JSON.stringify(preset, null, 2)], { type: 'application/json' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url; a.download = '인쇄비_단가설정.json'; a.click();
+      URL.revokeObjectURL(url);
+    }
+  }
+  async function handlePresetLoad() {
+    let preset;
+    if ('showOpenFilePicker' in window) {
+      try {
+        const [fileHandle] = await window.showOpenFilePicker({
+          types: [{ description: 'JSON 파일', accept: { 'application/json': ['.json'] } }],
+          multiple: false,
+        });
+        const file = await fileHandle.getFile();
+        preset = JSON.parse(await file.text());
+      } catch { return; }
+    } else {
+      preset = await new Promise(resolve => {
+        const input = document.createElement('input');
+        input.type = 'file'; input.accept = '.json,application/json';
+        input.onchange = async e => {
+          const file = e.target.files[0];
+          if (!file) { resolve(null); return; }
+          try { resolve(JSON.parse(await file.text())); } catch { resolve(null); }
+        };
+        input.click();
+      });
+      if (!preset) return;
+    }
+    if (preset.phase)             setPhase(preset.phase);
+    if (preset.minClicks)         setMinClicks(preset.minClicks);
+    if (preset.maxClicks)         setMaxClicks(preset.maxClicks);
+    if (preset.midCount != null)  setMidCount(preset.midCount);
+    if (preset.tiers)             setTiers(preset.tiers);
+    if (preset.curveK != null)    setCurveK(preset.curveK);
+    if (preset.formulaMaxPrice)   setFormulaMaxPrice(preset.formulaMaxPrice);
+    if (preset.coatingTiers)      setCoatingTiers(preset.coatingTiers);
+    if (preset.saddleTiers)       setSaddleTiers(preset.saddleTiers);
+    if (preset.perfectTiers)      setPerfectTiers(preset.perfectTiers);
+    if (preset.ringTiers)         setRingTiers(preset.ringTiers);
+    if (preset.scoringTiers)      setScoringTiers(preset.scoringTiers);
+    if (preset.tiers)       persistTiers(preset.minClicks, preset.maxClicks, preset.midCount, preset.tiers);
+    if (preset.curveK != null) persistFormula(preset.minClicks, preset.maxClicks, preset.curveK, preset.formulaMaxPrice);
+    if (preset.coatingTiers) localStorage.setItem(COATING_KEY, JSON.stringify(preset.coatingTiers));
+    if (preset.saddleTiers)  localStorage.setItem(SADDLE_KEY,  JSON.stringify(preset.saddleTiers));
+    if (preset.perfectTiers) localStorage.setItem(PERFECT_KEY, JSON.stringify(preset.perfectTiers));
+    if (preset.ringTiers)    localStorage.setItem(RING_KEY,    JSON.stringify(preset.ringTiers));
+    if (preset.scoringTiers) localStorage.setItem(SCORING_KEY, JSON.stringify(preset.scoringTiers));
+  }
+
   /* ── 서비스 단가 저장 */
   function saveServiceTiers(type, rows) {
     const sorted = [...rows].sort((a, b) =>
@@ -593,10 +665,20 @@ export default function PrintCostSimulator() {
             {phase === 'tier' ? '구간별 단가표 기반' : '수식 기반 곡선'} · job 인쇄비 산출
           </p>
         </div>
-        <button onClick={() => navigate('/')}
-          className="text-sm text-slate-500 hover:text-slate-800 px-3 py-1.5 border border-slate-300 rounded-lg transition-colors">
-          ← 손익분기점 그래프
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={handlePresetLoad}
+            className="text-sm text-slate-500 hover:text-slate-800 px-3 py-1.5 border border-slate-300 rounded-lg transition-colors">
+            불러오기
+          </button>
+          <button onClick={handlePresetSave}
+            className="text-sm px-3 py-1.5 bg-indigo-600 text-white border border-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors">
+            통합저장
+          </button>
+          <button onClick={() => navigate('/')}
+            className="text-sm text-slate-500 hover:text-slate-800 px-3 py-1.5 border border-slate-300 rounded-lg transition-colors">
+            ← 손익분기점 그래프
+          </button>
+        </div>
       </header>
 
       {loading && <p className="text-center text-slate-400 py-12">데이터 불러오는 중...</p>}
