@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Chart from 'chart.js/auto';
+import * as XLSX from 'xlsx';
 import { loadLatestSaveDB } from '../utils/supabaseUtils.js';
 import { fmt } from '../utils/chartUtils.js';
+import deowoorinData from '../data/더우린_A4_공급가액.json';
 
 const STORAGE_KEY       = 'printTiers_v3';
 const FORMULA_KEY       = 'printFormula_v1';
@@ -308,6 +310,10 @@ export default function PrintCostSimulator() {
   const [coatingEnabled, setCoatingEnabled] = useState(false);
   const [scoringEnabled,  setScoringEnabled]  = useState(false);
 
+  // 타사가격비교
+  const [comparisonData,      setComparisonData]      = useState(null);
+  const [showComparisonModal, setShowComparisonModal] = useState(false);
+
 
   // Job 계산기 — 공통
   const [jobCopies,     setJobCopies]     = useState('');
@@ -515,6 +521,67 @@ export default function PrintCostSimulator() {
     if (next.length === 0) setShowFormulaLoad(false);
   }
 
+  /* ── 타사가격비교 */
+  function handleComparisonClick() {
+    if (phase === 'tier' && !tiers) return;
+    const minPrice    = save ? Math.round(save.bepNow) : 0;
+    const copiesNums  = [2, 4, 6, 10, 50, 100, 200, 300];
+    const rows = deowoorinData.rows.map(row => {
+      const pages = parseInt(row.pages);
+      return {
+        pages: row.pages,
+        items: copiesNums.map((copies, idx) => {
+          const intClicks = Math.ceil(pages / 2) * copies;
+          let ourPrice = null;
+          if (phase === 'tier') {
+            const tier = tiers.find(t => t.maxClicks === null || intClicks <= t.maxClicks);
+            ourPrice = tier ? intClicks * tier.price : null;
+          } else {
+            const unitPrice = formulaPrice(intClicks, minClicks, maxClicks, curveK, minPrice, formulaMaxPrice);
+            ourPrice = intClicks * unitPrice;
+          }
+          return { copies, ourPrice, theirPrice: row.prices[idx] };
+        }),
+      };
+    });
+    setComparisonData(rows);
+    setShowComparisonModal(true);
+  }
+  async function exportComparisonExcel(data) {
+    const copies = deowoorinData.copies;
+    const makeSheet = (getValue) => {
+      const header = ['페이지', ...copies];
+      const sheetData = [header, ...data.map(row => [
+        row.pages,
+        ...row.items.map(item => getValue(item) ?? ''),
+      ])];
+      return XLSX.utils.aoa_to_sheet(sheetData);
+    };
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, makeSheet(i => i.ourPrice),   '우리 가격');
+    XLSX.utils.book_append_sheet(wb, makeSheet(i => i.theirPrice), '더우린 가격');
+    XLSX.utils.book_append_sheet(wb, makeSheet(i =>
+      i.ourPrice != null ? i.ourPrice - i.theirPrice : null
+    ), '차이(우리-더우린)');
+    const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    if ('showSaveFilePicker' in window) {
+      try {
+        const fh = await window.showSaveFilePicker({
+          suggestedName: '타사가격비교.xlsx',
+          types: [{ description: 'Excel 파일', accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } }],
+        });
+        const writable = await fh.createWritable();
+        await writable.write(new Uint8Array(buf));
+        await writable.close();
+      } catch {}
+    } else {
+      const blob = new Blob([new Uint8Array(buf)], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = '타사가격비교.xlsx'; a.click();
+      URL.revokeObjectURL(url);
+    }
+  }
+
   /* ── 통합 프리셋 */
   async function handlePresetSave() {
     const preset = {
@@ -666,6 +733,10 @@ export default function PrintCostSimulator() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={handleComparisonClick}
+            className="text-sm text-slate-500 hover:text-slate-800 px-3 py-1.5 border border-slate-300 rounded-lg transition-colors">
+            타사가격비교
+          </button>
           <button onClick={handlePresetLoad}
             className="text-sm text-slate-500 hover:text-slate-800 px-3 py-1.5 border border-slate-300 rounded-lg transition-colors">
             불러오기
@@ -1037,6 +1108,16 @@ export default function PrintCostSimulator() {
 
           </div>{/* END 2열 본문 */}
 
+          {/* 타사가격비교 모달 */}
+          {showComparisonModal && comparisonData && (
+            <ComparisonModal
+              data={comparisonData}
+              copies={deowoorinData.copies}
+              onExport={() => exportComparisonExcel(comparisonData)}
+              onClose={() => setShowComparisonModal(false)}
+            />
+          )}
+
           {/* 서비스 단가 설정 모달 */}
           {activeModal && (activeModal === 'saddle' || activeModal === 'perfect' || activeModal === 'ring'
             ? <BindingInfoModal type={activeModal} onClose={() => setActiveModal(null)} />
@@ -1370,6 +1451,73 @@ function ServiceTierModal({ title, tiers, onSave, onClose }) {
             className="text-xs px-4 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
             저장
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function diffColor(ourPrice, theirPrice) {
+  if (ourPrice == null) return '';
+  const pct = (ourPrice - theirPrice) / theirPrice * 100;
+  if (pct <= -30) return 'bg-green-300';
+  if (pct <= -10) return 'bg-green-100';
+  if (pct <    0) return 'bg-green-50';
+  if (pct <   10) return 'bg-yellow-50';
+  if (pct <   30) return 'bg-orange-100';
+  return 'bg-red-200';
+}
+
+function ComparisonModal({ data, copies, onExport, onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl flex flex-col w-full max-w-5xl max-h-[90vh]"
+        onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-800">타사가격비교 — 더우린 (VAT 별도)</h2>
+            <p className="text-xs text-slate-400 mt-0.5">우리 인쇄비 / 더우린 공급가 · 색상: 초록=저렴, 노랑·주황·빨강=비쌈 (10% 단위)</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={onExport}
+              className="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
+              엑셀로 저장
+            </button>
+            <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-lg leading-none">✕</button>
+          </div>
+        </div>
+        <div className="overflow-auto flex-1 p-4">
+          <table className="text-xs border-collapse w-full min-w-max">
+            <thead>
+              <tr className="bg-slate-100">
+                <th className="border border-slate-200 px-3 py-2 text-left font-semibold text-slate-600 sticky left-0 bg-slate-100">페이지</th>
+                {copies.map(c => (
+                  <th key={c} className="border border-slate-200 px-3 py-2 text-center font-semibold text-slate-600 min-w-[100px]">{c}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {data.map(row => (
+                <tr key={row.pages}>
+                  <td className="border border-slate-200 px-3 py-2 font-semibold text-slate-700 sticky left-0 bg-white">{row.pages}</td>
+                  {row.items.map(item => (
+                    <td key={item.copies} className={`border border-slate-200 px-2 py-1.5 text-center ${diffColor(item.ourPrice, item.theirPrice)}`}>
+                      <div className="font-medium text-slate-800">{item.ourPrice != null ? item.ourPrice.toLocaleString('ko-KR') : '-'}</div>
+                      <div className="text-slate-400 text-[10px] mt-0.5">{item.theirPrice.toLocaleString('ko-KR')}</div>
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="px-5 py-3 border-t border-slate-100 flex items-center gap-4 shrink-0 text-xs text-slate-400">
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-300 inline-block"></span>−30%↓ 저렴</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-100 inline-block"></span>−10~−30%</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-50 inline-block"></span>0~−10%</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-yellow-50 inline-block"></span>0~+10% 비쌈</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-orange-100 inline-block"></span>+10~+30%</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-200 inline-block"></span>+30%↑ 비쌈</span>
         </div>
       </div>
     </div>
