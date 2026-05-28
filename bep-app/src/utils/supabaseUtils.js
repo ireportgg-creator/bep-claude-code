@@ -30,6 +30,18 @@ export async function loadSavesDB() {
   return data.map(rowToState);
 }
 
+/** 가장 최근 저장 상태 1건 불러오기 */
+export async function loadLatestSaveDB() {
+  const { data, error } = await supabase
+    .from('bep_states')
+    .select('*')
+    .order('saved_at', { ascending: false })
+    .limit(1)
+    .single();
+  if (error) throw error;
+  return rowToState(data);
+}
+
 /** 현재 상태 저장 */
 export async function saveStateDB({ machine, labor, depreciation, electricity, monthlyClicks, clickType }) {
   const { data, error } = await supabase
